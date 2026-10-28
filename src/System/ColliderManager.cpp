@@ -85,7 +85,7 @@ void ColliderManager::Unregister(Collider* collider) {
 void ColliderManager::Step(float dt) {
     float h = dt / kSubsteps;
     for (int i = 0; i < kSubsteps; ++i) {
-        stepSuspension(h);
+        stepWheels(h);
     }
 
     std::vector<std::pair<Collider*, Collider*>> touchingNow;
@@ -137,7 +137,7 @@ RaycastHit ColliderManager::GroundAt(float x, float z, float yHint, float prefer
     return best;
 }
 
-void ColliderManager::stepSuspension(float dt) {
+void ColliderManager::stepWheels(float dt) {
     // 先に全輪の縮みを求めてから力を加える。スタビライザーが反対側の縮みを読むため。
     for (WheelCollider* wheel : wheels_) {
         Vec3 mountWorld = wheel->body->ToWorld(wheel->mount);
@@ -145,13 +145,18 @@ void ColliderManager::stepSuspension(float dt) {
         wheel->Update(hit, mountWorld, dt);
     }
     for (WheelCollider* wheel : wheels_) {
-        float force = wheel->Force();
-        if (force > 0) {
-            wheel->body->AddForceAt(Vec3{0, force, 0}, wheel->body->ToWorld(wheel->mount));
+        // サスペンションの力は取付点に、タイヤの力は接地点に加える。接地点は重心より低いので、
+        // 加速で後ろが沈み、曲がると外へ傾く（荷重移動）。
+        float load = wheel->Force();
+        if (load > 0) {
+            wheel->body->AddForceAt(Vec3{0, load, 0}, wheel->body->ToWorld(wheel->mount));
         }
+        Vec3 tireForce, contact;
+        wheel->StepTire(load, dt, kGravity, tireForce, contact);
+        wheel->body->AddForceAt(tireForce, contact);
     }
     for (Rigidbody* body : bodies_) {
-        body->IntegrateVertical(dt, kGravity);
+        body->Integrate(dt, kGravity);
     }
     // 底突き: 縮みきって車輪が取付点まで来た輪では、その点の下向きの速度を力積で止め、めり込んだ分を押し戻す。
     for (WheelCollider* wheel : wheels_) {

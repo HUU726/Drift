@@ -37,6 +37,7 @@ add_executable(racegame
     src/Physics/TrackCollider.cpp
     src/Physics/RampCollider.cpp
     src/Vehicle/WheelCollider.cpp
+    src/Vehicle/TireModel.cpp
     src/Scene/Scene.cpp
     src/Scene/RaceScene.cpp
     src/GameObject/TrackObject.cpp

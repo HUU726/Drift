@@ -22,6 +22,7 @@ struct RaycastHit {
     bool hit = false;
     Vec3 point;     // 路面の点
     float s = -1;   // 当たった路面の周回位置。次のレイで立体交差の上下を取り違えないように渡す
+    const PhysicsMaterial* material = nullptr;  // 当たった面の材質
 };
 
 // 形状と材質を持つ当たり判定。GameObject がメンバとして持ち、ColliderManager に登録する。

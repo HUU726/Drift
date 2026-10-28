@@ -2,9 +2,12 @@
 
 #include "Physics/Collider.h"
 
-// 車輪 1 つ分のサスペンション。取付点から真下へレイを飛ばし、縮みからバネとダンパーの力を求める。
-// ColliderManager が固定ステップのサブステップごとに Update を呼び、力を車体に加える。
-// タイヤの力（駆動、ブレーキ、横のグリップ）は段階 8 で足す。
+class ITireModel;
+
+// 車輪 1 つ分のサスペンションとタイヤ。
+// サスペンション: 取付点から真下へレイを飛ばし、縮みからバネとダンパーの力を求める。
+// タイヤ: 車輪の回転と路面の上の速度から滑りを求め、ITireModel で路面から受ける力を求める。
+// ColliderManager がサブステップごとに Update、Force、StepTire の順に呼び、力を車体に加える。
 class WheelCollider : public Collider {
 public:
     // 設定（車体の座標。重心から、x 右、y 上、z 前）
@@ -20,6 +23,17 @@ public:
     float bumpStopReturn = 0.2f;    // 伸びるときにバンプストップが返す力の割合
     WheelCollider* antiRollPartner = nullptr;  // 同じ車軸の反対側
     float antiRollRate = 0;
+    const ITireModel* tire = nullptr;
+    float wheelInertia = 1.2f;   // kg·m²
+    float rollingDecel = 0.9f;   // タイヤ自身の転がり抵抗（車を減速させる加速度、m/s²）
+
+    // 操作（Car が固定ステップごとに決める）
+    float steer = 0;        // 切れ角（rad、右が正）
+    float driveTorque = 0;  // N·m。前へ回す向きが正
+    float brakeTorque = 0;  // N·m。回転を止める向きに掛かる大きさ
+    bool antiLock = true;           // ABS: ブレーキで滑りすぎないように回転を保つ
+    bool tractionControl = true;    // 駆動で滑りすぎないように回転を抑える
+    float slipControlShare = 0.8f;  // 上の 2 つが許すスリップ率（ピークのスリップ率に対する割合）
 
     // 状態
     bool grounded = false;
@@ -28,14 +42,25 @@ public:
     float load = 0;         // 路面に掛けている力（N）
     float lastS = -1;       // 直前に当たった路面の周回位置
     float groundY = 0;      // 直前に当たった路面の高さ
+    const PhysicsMaterial* surface = nullptr;  // 直前に当たった路面の材質
+    float omega = 0;        // 回転の速さ（rad/s）。前へ転がる向きが正
+    float spinAngle = 0;    // 描画用の回転角
+    float slipRatio = 0;
+    float slipAngle = 0;
+    bool sliding = false;   // タイヤがピークを越えて滑っている
 
     // レイの結果から縮みとバネの力を求める（スタビライザーの分は含まない）。
     void Update(const RaycastHit& hit, Vec3 mountWorld, float dt);
     // スタビライザーを含めた、車体を押し上げる力（N）。
     float Force();
+    // タイヤの力（ワールド座標）とその作用点（接地点）を求め、車輪の回転を dt だけ進める。
+    void StepTire(float load, float dt, float gravity, Vec3& force, Vec3& point);
     void Reset();
 
 private:
+    // ABS とトラクションコントロールで、回転の速さ w を滑りすぎない範囲に収める。
+    float limitSlip(float w, float vx, float speed, float slipAngle) const;
+
     float springForce_ = 0;
     float prevCompression_ = 0;
     bool hasPrev_ = false;

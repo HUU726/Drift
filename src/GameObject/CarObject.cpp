@@ -60,7 +60,7 @@ void CarObject::Draw3D(System::Renderer3D& renderer) {
     for (int i = 0; i < Car::kWheelCount; ++i) {
         Vec3 center = car_.WheelCenter(i);
         float steer = i < Car::kRearLeft ? car_.steerAngle : 0.0f;
-        Mat4 place = mul(translation(center.x, center.y, center.z), mul(rotationY(steer), rotationX(car_.wheelSpin)));
+        Mat4 place = mul(translation(center.x, center.y, center.z), mul(rotationY(steer), rotationX(car_.wheels[i].spinAngle)));
         renderer.Draw(wheel_, mul(model, place));
     }
 }

@@ -4,14 +4,13 @@
 
 #include <cmath>
 
-// 剛体の状態。position は重心。
-// 物理の段階 6 では、上下の動き（重力とサスペンション）と pitch / roll を力で積分する。
-// 水平の動きとヨーは、まだ Car のグリップ走行が直接決める（段階 8 でタイヤの力に置き換える）。
+// 剛体の状態。position は重心。サスペンションとタイヤの力、重力、空気抵抗を積み上げて積分する。
 struct Rigidbody {
     float mass = 1300.0f;          // kg
     float inertiaYaw = 2630.0f;    // kg·m²。上下の軸まわり
     float inertiaPitch = 2350.0f;  // 左右の軸まわり
     float inertiaRoll = 500.0f;    // 前後の軸まわり
+    float dragCoefficient = 0;     // 空気抵抗（N / (m/s)²）。水平の速度の 2 乗に比例する
     Vec3 position;
     Vec3 velocity;          // m/s。ワールド座標
     float yaw = 0;          // 向き。+z が 0、右回りが正
@@ -21,7 +20,7 @@ struct Rigidbody {
     float pitchRate = 0;
     float rollRate = 0;
 
-    // 水平面での向き。グリップ走行と壁の判定が使う。
+    // 水平面での向き。壁の判定と、車体から見た速度に使う。
     Vec3 Forward() const { return {std::sin(yaw), 0, std::cos(yaw)}; }
     Vec3 Right() const { return {std::cos(yaw), 0, -std::sin(yaw)}; }
     // 車体から見た前向きと右向きの速度。ドリフトでは LateralSpeed が 0 でなくなる。
@@ -52,7 +51,7 @@ struct Rigidbody {
         return velocity + cross(omega, point - position);
     }
 
-    // point に力 f を加える（次の IntegrateVertical まで積み上げる）。
+    // point に力 f を加える（次の Integrate まで積み上げる）。
     void AddForceAt(Vec3 f, Vec3 point) {
         Vec3 right, up, forward;
         Axes(right, up, forward);
@@ -60,19 +59,27 @@ struct Rigidbody {
         force_ = force_ + f;
         pitchTorque_ -= dot(torque, right);
         rollTorque_ += dot(torque, forward);
+        yawTorque_ += torque.y;
     }
 
-    // 上下の速度と pitch / roll を、積み上げた力と重力で進める（半陰的オイラー法）。
-    void IntegrateVertical(float dt, float gravity) {
-        velocity.y += (force_.y / mass - gravity) * dt;
+    // 積み上げた力と重力、空気抵抗で速度と角速度を進め、位置と向きを進める（半陰的オイラー法）。
+    void Integrate(float dt, float gravity) {
+        float speed = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+        force_.x -= dragCoefficient * velocity.x * speed;
+        force_.z -= dragCoefficient * velocity.z * speed;
+        velocity = velocity + force_ * (dt / mass);
+        velocity.y -= gravity * dt;
+        yawRate += yawTorque_ / inertiaYaw * dt;
         pitchRate += pitchTorque_ / inertiaPitch * dt;
         rollRate += rollTorque_ / inertiaRoll * dt;
-        position.y += velocity.y * dt;
+        position = position + velocity * dt;
+        yaw += yawRate * dt;
         pitch += pitchRate * dt;
         roll += rollRate * dt;
         force_ = Vec3{};
         pitchTorque_ = 0;
         rollTorque_ = 0;
+        yawTorque_ = 0;
     }
 
     // point に上向きの力積 j（N·s）を加える。上下の速度と pitch / roll が変わる（着地の底突き用）。
@@ -110,4 +117,5 @@ private:
     Vec3 force_;
     float pitchTorque_ = 0;
     float rollTorque_ = 0;
+    float yawTorque_ = 0;
 };

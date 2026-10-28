@@ -2,33 +2,25 @@
 
 #include "Vehicle/VehicleSpec.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace {
 
-constexpr float kMaxSpeed = 82.0f;      // 約 295 km/h
+// 運転操作から求める、車全体の加速と減速（m/s²）。段階 9 でエンジンと駆動系に置き換える。
+// 実際に出る加速と減速は、タイヤが路面に伝えられる力（μ × 荷重）で決まる。
+constexpr float kMaxSpeed = 82.0f;      // 約 295 km/h。ここで駆動が 0 になる
 constexpr float kMaxReverse = 9.0f;
 constexpr float kAccel = 13.0f;
 constexpr float kBrake = 30.0f;
 constexpr float kReverseAccel = 8.0f;
-constexpr float kDrag = 0.00045f;
-constexpr float kRolling = 0.9f;
-constexpr float kWheelbase = 3.05f;
+constexpr float kDrag = 0.00045f;       // 空気抵抗。速度の 2 乗に掛けて減速（1/m）
 constexpr float kSteerRate = 2.6f;
-// 壁の衝突で加わった横の速度と回転を、タイヤのグリップが打ち消すまでの時定数（秒）。
-constexpr float kGripRecoverSec = 0.15f;
+// ブレーキの前後の配分（前の割合）
+constexpr float kBrakeFront = 0.6f;
 
 float maxSteerAt(float speed) {
     return 0.46f / (1.0f + std::fabs(speed) * 0.085f);
-}
-
-// 横位置から路面の材質を決める。縁石の内側 0.15 m までは路面、その外は芝として扱う。
-// 物理の段階 4 で TrackCollider に移す。
-const PhysicsMaterial& surfaceAt(const Track& track, float lateral) {
-    if (std::fabs(lateral) <= track.halfWidth + 0.15f) {
-        return Materials::kAsphalt;
-    }
-    return Materials::kRunoff;
 }
 
 }  // namespace
@@ -51,11 +43,23 @@ Car::Car() {
         wheel.bumpStopRate = kBumpStopRate;
         wheel.bumpStopReturn = kBumpStopReturn;
         wheel.antiRollRate = i < kRearLeft ? kFrontAntiRoll : kRearAntiRoll;
+        wheel.tire = &gripTire;
+        wheel.wheelInertia = kWheelInertia;
+        wheel.rollingDecel = kRollingDecel;
+        wheel.antiLock = kAntiLockBrakes;
+        wheel.tractionControl = kTractionControl;
+        wheel.slipControlShare = kSlipControlShare;
     }
     wheels[kFrontLeft].antiRollPartner = &wheels[kFrontRight];
     wheels[kFrontRight].antiRollPartner = &wheels[kFrontLeft];
     wheels[kRearLeft].antiRollPartner = &wheels[kRearRight];
     wheels[kRearRight].antiRollPartner = &wheels[kRearLeft];
+}
+
+void Car::UseDriftTires(bool drift) {
+    const ITireModel* rear = drift ? static_cast<const ITireModel*>(&driftTire) : &gripTire;
+    wheels[kRearLeft].tire = rear;
+    wheels[kRearRight].tire = rear;
 }
 
 void Car::reset(const Track& track) {
@@ -66,16 +70,14 @@ void Car::reset(const Track& track) {
     body.inertiaYaw = VehicleSpec::kInertiaYaw;
     body.inertiaPitch = VehicleSpec::kInertiaPitch;
     body.inertiaRoll = VehicleSpec::kInertiaRoll;
+    body.dragCoefficient = VehicleSpec::kMass * kDrag;
     // 原点を地面に置く。サスペンションが止まっているときの縮みになる高さで、すぐに落ち着く。
     body.position.y += VehicleSpec::kCenterOfMassY;
     for (WheelCollider& wheel : wheels) {
         wheel.Reset();
     }
     steerAngle = 0;
-    wheelSpin = 0;
     brakeHold = 0;
-    gripYawRate = 0;
-    surface = &Materials::kAsphalt;
     ground = track.query(body.position.x, body.position.z, track.spawnY);
 }
 
@@ -97,55 +99,8 @@ Vec3 Car::WheelCenter(int wheel) const {
     return Vec3{w.mount.x, w.mount.y + VehicleSpec::kCenterOfMassY - w.length, w.mount.z};
 }
 
-void Car::stepGrip(float dt) {
-    // ------------------------------------------------------------------------
-    // グリップ走行。ドリフトはここには書いていない。
-    //
-    // 速度は車体の前方だけを向く。横滑りはしない。
-    // 走っているときの曲がりは、滑らない自転車モデル（ホイールベースと前輪の切れ角）。
-    // ほぼ止まっているときは、据え切りで少しだけ向きが変わる。壁に向かって止まっても戻れる。
-    //
-    // ドリフトの課題では、この関数を差し替える。
-    // たとえば横方向の速度、スリップ角、前後で違うグリップをここに足す。
-    // アクセルとブレーキは update() 側、壁との接触は ColliderManager にある。
-    // ------------------------------------------------------------------------
-    if (Airborne()) {
-        // 空中ではタイヤが路面に触れないので、向きの回り方と速度はそのまま残る。
-        // グリップが決めた回転は 0 として覚え、着地した後は空中で付いた回転を下の spin として消していく。
-        gripYawRate = 0;
-        body.yaw += body.yawRate * dt;
-        body.position.x += body.velocity.x * dt;
-        body.position.z += body.velocity.z * dt;
-        return;
-    }
-    float speed = body.ForwardSpeed();
-    float lateral = body.LateralSpeed();
-    float yawRate = 0;
-    if (std::fabs(speed) > 0.05f) {
-        yawRate = (speed / kWheelbase) * std::tan(steerAngle);
-    }
-    float slow = clampf(1.0f - std::fabs(speed) / 8.0f, 0.0f, 1.0f);
-    yawRate += steerAngle * 0.9f * slow;
-
-    // 壁の衝突で加わった横の速度と回転は、グリップですぐに消える。衝突がなければどちらも 0。
-    // 段階 8 のタイヤモデルで、タイヤの力として置き換える。
-    float recover = std::exp(-dt / kGripRecoverSec);
-    float spin = (body.yawRate - gripYawRate) * recover;
-    gripYawRate = yawRate;
-    body.yawRate = yawRate + spin;
-    body.yaw += body.yawRate * dt;
-
-    // 水平の速度だけを決める。上下の速度と高さは ColliderManager がサスペンションで進める。
-    float vy = body.velocity.y;
-    body.velocity = body.Forward() * speed + body.Right() * (lateral * recover);
-    body.velocity.y = vy;
-    body.position.x += body.velocity.x * dt;
-    body.position.z += body.velocity.z * dt;
-}
-
 void Car::update(float dt, const DriveInput& input, const Track& track) {
     float speed = body.ForwardSpeed();
-    float lateral = body.LateralSpeed();
     float target = clampf(input.steer, -1.0f, 1.0f) * maxSteerAt(speed);
     float step = kSteerRate * dt;
     steerAngle += clampf(target - steerAngle, -step, step);
@@ -162,55 +117,40 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     }
     bool reversing = brakeHold > 0.28f;
 
-    float force = 0;
-    float speedBefore = speed;
+    // 車全体として出したい駆動の加速と、ブレーキの減速（m/s²）。
+    float drive = 0;
+    float brake = 0;
     if (input.brake > 0.05f && !reversing) {
-        force -= input.brake * kBrake * (speed >= 0 ? 1.0f : -1.0f);
+        brake = input.brake * kBrake;
     } else if (reversing) {
-        force -= input.brake * kReverseAccel;
+        drive = speed > -kMaxReverse ? -input.brake * kReverseAccel : 0.0f;
     } else if (input.throttle > 0.0f && speed > -0.4f) {
         float ratio = clampf(speed / kMaxSpeed, 0.0f, 1.0f);
-        force += input.throttle * kAccel * (1.0f - ratio * ratio);
+        drive = input.throttle * kAccel * (1.0f - ratio * ratio);
     } else if (input.throttle > 0.0f) {
-        force += input.throttle * kBrake;  // 後ろへ動いている間のアクセルはブレーキとして効く
-    }
-    force -= kDrag * speed * std::fabs(speed);
-    if (std::fabs(speed) > 0.05f) {
-        force -= kRolling * (speed > 0 ? 1.0f : -1.0f);
-    }
-    // 路面の材質で駆動力を絞り、路面の転がり抵抗を足す。
-    if (force > 0) {
-        force *= surface->gripScale;
-    }
-    if (std::fabs(speed) > 0.2f) {
-        force -= surface->rollingResistance * (speed > 0 ? 1.0f : -1.0f);
-    }
-    // 4 輪とも浮いている間は、タイヤの力（駆動、ブレーキ、転がり抵抗）がなく、空気抵抗だけが掛かる。
-    if (Airborne()) {
-        force = -kDrag * speed * std::fabs(speed);
+        brake = input.throttle * kBrake;  // 後ろへ動いている間のアクセルはブレーキとして効く
     }
 
-    speed += force * dt;
-    if (!reversing && input.brake > 0.05f) {
-        if (speedBefore >= 0 && speed < 0) speed = 0;
-        if (speedBefore <= 0 && speed > 0) speed = 0;
+    // 加速と減速を、車輪のトルクにする。駆動は後輪の 2 本、ブレーキは前 6 : 後 4。
+    const float mass = VehicleSpec::kMass;
+    const float radius = VehicleSpec::kWheelRadius;
+    for (int i = 0; i < kWheelCount; ++i) {
+        WheelCollider& wheel = wheels[i];
+        bool front = i < kRearLeft;
+        wheel.steer = front ? steerAngle : 0.0f;
+        float driveTorque = front ? 0.0f : mass * drive * radius * 0.5f;
+        float brakeTorque = mass * brake * radius * 0.5f * (front ? kBrakeFront : 1.0f - kBrakeFront);
+        wheel.driveTorque = driveTorque;
+        wheel.brakeTorque = brakeTorque;
     }
-    speed = clampf(speed, -kMaxReverse, kMaxSpeed);
-    wheelSpin += speed / VehicleSpec::kWheelRadius * dt;
-    float vy = body.velocity.y;
-    body.velocity = body.Forward() * speed + body.Right() * lateral;
-    body.velocity.y = vy;
 
-    stepGrip(dt);
-
+    // 車の下のコース。周回位置と横位置を、ラップ計測と HUD のために持っておく。
     float preferS = ground.found ? ground.s : -1.0f;
     Vec3 origin = Origin();
-    ground = track.queryLocal(origin.x, origin.z, origin.y, preferS);
-    if (!ground.found) {
-        return;
+    TrackPose pose = track.queryLocal(origin.x, origin.z, origin.y, preferS);
+    if (pose.found) {
+        ground = pose;
     }
-    // 高さは 4 輪のサスペンション、壁との接触は車体の BoxCollider で、どちらも ColliderManager が解く。
-    surface = &surfaceAt(track, ground.lateral);
 }
 
 void buildCarBody(CpuMesh& mesh) {

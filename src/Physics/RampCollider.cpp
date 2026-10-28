@@ -82,6 +82,7 @@ RaycastHit RampCollider::GroundAt(float x, float z, float yHint) const {
     hit.hit = true;
     hit.point = Vec3{x, y, z};
     hit.s = spec_.s + u;
+    hit.material = material;
     return hit;
 }
 

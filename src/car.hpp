@@ -2,6 +2,7 @@
 
 #include "Physics/PhysicsMaterial.h"
 #include "Physics/Rigidbody.h"
+#include "Vehicle/TireModel.h"
 #include "Vehicle/WheelCollider.h"
 #include "meshbuild.hpp"
 #include "track.hpp"
@@ -23,14 +24,14 @@ struct Car {
     Rigidbody body;         // 重心の位置、向き、速度、角速度
     WheelCollider wheels[kWheelCount];
     float steerAngle = 0;   // 前輪の切れ角（ラジアン、右が正）
-    float wheelSpin = 0;
     float brakeHold = 0;    // 止まってから後退に入るまでの待ち時間
-    float gripYawRate = 0;  // 前のステップでグリップが決めたヨーレート。衝突で加わった回転との差を見る
-    const PhysicsMaterial* surface = &Materials::kAsphalt;  // 車の下の路面
-    TrackPose ground;
+    TrackPose ground;       // 車の下のコース（周回位置、横位置）。ラップ計測と HUD が読む
 
     void reset(const Track& track);
+    // 入力から前輪の切れ角と、各輪の駆動・ブレーキのトルクを決める。車を動かすのは ColliderManager。
     void update(float dt, const DriveInput& input, const Track& track);
+    // 後輪をドリフト用のタイヤにする（false でグリップ用に戻す）。前輪はグリップ用のまま。
+    void UseDriftTires(bool drift);
     // 前向きの速度（m/s）。正が前進
     float ForwardSpeed() const { return body.ForwardSpeed(); }
     // 4 輪とも路面から離れているか
@@ -40,8 +41,9 @@ struct Car {
     // 車輪の中心（車体の座標、原点から）。サスペンションの縮みを含む
     Vec3 WheelCenter(int wheel) const;
 
-    // グリップしたまま進む。ドリフトの課題ではこの関数を差し替える。
-    void stepGrip(float dt);
+    // タイヤのモデル。ドリフトの課題では、ここを差し替えるか、新しいモデルを足す。
+    GripTire gripTire;
+    DriftTire driftTire;
 };
 
 void buildCarBody(CpuMesh& mesh);

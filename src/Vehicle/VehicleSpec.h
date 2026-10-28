@@ -29,4 +29,11 @@ constexpr float kBumpStopReturn = 0.2f;     // 伸びるときにバンプスト
 constexpr float kFrontAntiRoll = 12000.0f;  // N/m。左右の縮みの差に掛ける
 constexpr float kRearAntiRoll = 8000.0f;
 
+// タイヤと車輪
+constexpr float kWheelInertia = 1.2f;       // kg·m²
+constexpr float kRollingDecel = 0.9f;       // タイヤ自身の転がり抵抗（車を減速させる加速度、m/s²）
+constexpr bool kTractionControl = true;     // 駆動輪が空転しないように回転を抑える（切るとパワースライド）
+constexpr bool kAntiLockBrakes = true;      // ブレーキで車輪がロックしないように回転を保つ
+constexpr float kSlipControlShare = 0.8f;   // 上の 2 つが許すスリップ率（ピークに対する割合）
+
 }  // namespace VehicleSpec

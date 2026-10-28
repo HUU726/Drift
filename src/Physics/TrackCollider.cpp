@@ -19,6 +19,15 @@ RaycastHit TrackCollider::GroundAt(float x, float z, float yHint, float preferS)
     hit.hit = true;
     hit.point = Vec3{x, pose.centerY + bankLat * pose.cross, z};
     hit.s = pose.s;
+    // 横位置で材質を決める。路面、その外側の縁石、さらに外側の芝。
+    float side = std::fabs(pose.lateral);
+    if (side <= track_.halfWidth) {
+        hit.material = &Materials::kAsphalt;
+    } else if (side <= bankLimit) {
+        hit.material = &Materials::kCurb;
+    } else {
+        hit.material = &Materials::kRunoff;
+    }
     return hit;
 }
 

@@ -60,6 +60,28 @@ float wallDepth(const Rig& rig, const Track& track) {
     return deepest;
 }
 
+// 周回位置 s のコースの向き（サンプルを 1 つおきに見て、いちばん近い点の区間の向き）。
+float trackYawAt(const Track& track, float s) {
+    if (s >= track.length) {
+        s -= track.length;
+    }
+    const int n = static_cast<int>(track.samples.size());
+    int nearest = 0;
+    float nearestGap = 1.0e9f;
+    for (int i = 0; i < n; i += 2) {
+        float gap = std::fabs(track.samples[i].s - s);
+        if (gap > track.length * 0.5f) {
+            gap = track.length - gap;
+        }
+        if (gap < nearestGap) {
+            nearestGap = gap;
+            nearest = i;
+        }
+    }
+    int next = (nearest + 1) % n;
+    return std::atan2(track.samples[next].x - track.samples[nearest].x, track.samples[next].z - track.samples[nearest].z);
+}
+
 // 自動運転でコースを 50 秒走る。
 int lapTest(const Track& track) {
     Rig rig(track);
@@ -72,38 +94,24 @@ int lapTest(const Track& track) {
     float maxCompression = 0;  // 縮みの最大（底突きしていないか）
     for (int step = 0; step < 60 * 50; ++step) {
         TrackPose pose = track.query(car.body.position.x, car.body.position.z, car.Origin().y, car.ground.found ? car.ground.s : -1.0f);
-        float lookS = pose.s + 70.0f;
-        if (lookS >= track.length) {
-            lookS -= track.length;
-        }
-        int nearest = 0;
-        float nearestGap = 1.0e9f;
-        for (int i = 0; i < static_cast<int>(track.samples.size()); i += 2) {
-            float gap = std::fabs(track.samples[i].s - lookS);
-            if (gap > track.length * 0.5f) {
-                gap = track.length - gap;
-            }
-            if (gap < nearestGap) {
-                nearestGap = gap;
-                nearest = i;
-            }
-        }
-        int next = (nearest + 1) % static_cast<int>(track.samples.size());
-        float tx = track.samples[next].x - track.samples[nearest].x;
-        float tz = track.samples[next].z - track.samples[nearest].z;
-        float targetYaw = std::atan2(tx, tz);
+        // ハンドルとアクセルは 70 m 先のコースの向きで決める。ブレーキは、止まりきれる距離
+        //（タイヤで出せる減速は約 9 m/s²。余裕を見て 7 m/s²）の先の向きで決める。
+        float speedNow = std::max(car.ForwardSpeed(), 0.0f);
+        float targetYaw = trackYawAt(track, pose.s + 70.0f);
+        float brakeYaw = trackYawAt(track, pose.s + std::max(70.0f, speedNow * speedNow / (2.0f * 7.0f)));
         float errNow = wrapPi(pose.yaw - car.body.yaw);
         float errAhead = wrapPi(targetYaw - car.body.yaw);
         float bend = std::fabs(wrapPi(targetYaw - pose.yaw));
+        float brakeBend = std::max(bend, std::fabs(wrapPi(brakeYaw - pose.yaw)));
         DriveInput input;
         input.steer = clampf(errNow * 2.6f + errAhead * 0.5f, -1.0f, 1.0f);
         input.steer = clampf(input.steer - pose.lateral * 0.12f, -1.0f, 1.0f);
         input.throttle = bend < 0.15f ? 1.0f : 0.45f;
         input.brake = 0;
-        if (bend > 0.28f && car.ForwardSpeed() > 22.0f) {
+        if (brakeBend > 0.28f && car.ForwardSpeed() > 22.0f) {
             input.throttle = 0;
             input.brake = 1.0f;
-        } else if (bend > 0.12f && car.ForwardSpeed() > 34.0f) {
+        } else if (brakeBend > 0.12f && car.ForwardSpeed() > 34.0f) {
             input.throttle = 0;
             input.brake = 0.55f;
         }

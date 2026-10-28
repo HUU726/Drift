@@ -27,8 +27,12 @@ add_executable(racegame
     src/main.cpp
     src/track.cpp
     src/car.cpp
-    src/render.cpp
+    src/System/GlCommon.cpp
+    src/System/Renderer3D.cpp
+    src/System/Renderer2D.cpp
 )
+
+target_include_directories(racegame PRIVATE src)
 
 set(ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets")
 

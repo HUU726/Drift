@@ -1,5 +1,6 @@
 #include "car.hpp"
-#include "render.hpp"
+#include "System/Renderer2D.h"
+#include "System/Renderer3D.h"
 #include "track.hpp"
 
 #include <SDL.h>
@@ -45,13 +46,14 @@ struct App {
     SDL_Window* window = nullptr;
     SDL_GLContext gl = nullptr;
     SDL_GameController* pad = nullptr;
-    Renderer renderer;
+    System::Renderer3D renderer3d;
+    System::Renderer2D renderer2d;
     Track track;
     Car car;
-    GpuMesh course;
-    GpuMesh body;
-    GpuMesh wheel;
-    GpuMesh shadow;
+    System::GpuMesh course;
+    System::GpuMesh body;
+    System::GpuMesh wheel;
+    System::GpuMesh shadow;
     Race race;
     Orbit camera;
     bool running = true;
@@ -287,8 +289,8 @@ void updateCamera(App& app, float dt) {
 void drawMinimap(App& app) {
     float size = 190.0f;
     float x0 = 24.0f;
-    float y0 = float(app.renderer.height) - size - 28.0f;
-    app.renderer.addQuad(x0, y0, x0 + size, y0 + size, 0.02f, 0.03f, 0.05f, 0.78f);
+    float y0 = float(app.renderer2d.Height()) - size - 28.0f;
+    app.renderer2d.AddQuad(x0, y0, x0 + size, y0 + size, 0.02f, 0.03f, 0.05f, 0.78f);
     float minX = app.track.samples[0].x;
     float maxX = minX;
     float minZ = app.track.samples[0].z;
@@ -314,7 +316,7 @@ void drawMinimap(App& app) {
             g = 0.72f;
             bl = 0.28f;
         }
-        app.renderer.drawLine(mapX(a.x), mapY(a.z), mapX(b.x), mapY(b.z), 2.0f, r, g, bl, 1);
+        app.renderer2d.DrawLine(mapX(a.x), mapY(a.z), mapX(b.x), mapY(b.z), 2.0f, r, g, bl, 1);
     }
     float mx = mapX(app.car.x);
     float my = mapY(app.car.z);
@@ -326,32 +328,32 @@ void drawMinimap(App& app) {
     float ly = my + nose.z * 5.0f - side.z * 5.0f;
     float rx = mx - nose.x * 5.0f - side.x * 5.0f;
     float ry = my + nose.z * 5.0f + side.z * 5.0f;
-    app.renderer.drawLine(lx, ly, nx, ny, 2.0f, 0.9f, 0.2f, 0.18f, 1);
-    app.renderer.drawLine(rx, ry, nx, ny, 2.0f, 0.9f, 0.2f, 0.18f, 1);
-    app.renderer.drawLine(lx, ly, rx, ry, 2.0f, 0.9f, 0.2f, 0.18f, 1);
+    app.renderer2d.DrawLine(lx, ly, nx, ny, 2.0f, 0.9f, 0.2f, 0.18f, 1);
+    app.renderer2d.DrawLine(rx, ry, nx, ny, 2.0f, 0.9f, 0.2f, 0.18f, 1);
+    app.renderer2d.DrawLine(lx, ly, rx, ry, 2.0f, 0.9f, 0.2f, 0.18f, 1);
 }
 
 void drawHud(App& app) {
-    Renderer& hud = app.renderer;
-    hud.beginHud();
+    System::Renderer2D& hud = app.renderer2d;
+    hud.Begin();
     char line[96];
     int kmh = static_cast<int>(std::lround(app.car.speed * 3.6f));
     std::snprintf(line, sizeof(line), "%d KM/H", kmh);
-    hud.drawText(24, 22, 4.0f, line, 0.95f, 0.96f, 0.98f, 1);
+    hud.DrawText(24, 22, 4.0f, line, 0.95f, 0.96f, 0.98f, 1);
 
     if (!app.race.timing) {
         std::snprintf(line, sizeof(line), "OUT LAP");
     } else {
         std::snprintf(line, sizeof(line), "LAP %d", app.race.completed + 1);
     }
-    hud.drawText(24, 64, 2.2f, line, 0.85f, 0.88f, 0.92f, 1);
+    hud.DrawText(24, 64, 2.2f, line, 0.85f, 0.88f, 0.92f, 1);
     formatTime(line, sizeof(line), app.race.lap);
-    hud.drawText(150, 64, 2.2f, line, 0.95f, 0.96f, 0.98f, 1);
+    hud.DrawText(150, 64, 2.2f, line, 0.95f, 0.96f, 0.98f, 1);
 
     char best[32];
     formatTime(best, sizeof(best), app.race.best);
     std::snprintf(line, sizeof(line), "BEST %s", best);
-    hud.drawText(24, 90, 2.0f, line, 0.75f, 0.8f, 0.7f, 1);
+    hud.DrawText(24, 90, 2.0f, line, 0.75f, 0.8f, 0.7f, 1);
 
     int percent = static_cast<int>(app.car.ground.s / app.track.length * 100.0f);
     const char* corner = app.track.nameOf(app.car.ground.nameId);
@@ -362,27 +364,27 @@ void drawHud(App& app) {
     } else {
         std::snprintf(line, sizeof(line), "%d%%", percent);
     }
-    hud.drawText(24, 116, 2.0f, line, 0.9f, 0.9f, 0.92f, 1);
+    hud.DrawText(24, 116, 2.0f, line, 0.9f, 0.9f, 0.92f, 1);
 
     const char* camName = "CHASE";
     if (app.camera.mode == 1) camName = "CLOSE";
     if (app.camera.mode == 2) camName = "FAR";
-    hud.drawText(float(hud.width) - 140, 22, 2.0f, camName, 0.8f, 0.84f, 0.88f, 1);
+    hud.DrawText(float(hud.Width()) - 140, 22, 2.0f, camName, 0.8f, 0.84f, 0.88f, 1);
 
     if (app.showHelp) {
-        hud.drawText(24, float(hud.height) - 78, 1.7f,
+        hud.DrawText(24, float(hud.Height()) - 78, 1.7f,
                      "W/UP ACCEL  S/DOWN BRAKE  A/D STEER  R RESET  C CAMERA  P PAUSE",
                      0.9f, 0.92f, 0.94f, 1);
-        hud.drawText(24, float(hud.height) - 54, 1.7f,
+        hud.DrawText(24, float(hud.Height()) - 54, 1.7f,
                      "PAD: RT ACCEL  LT BRAKE  STICK STEER  Y CAMERA  BACK RESET  START PAUSE",
                      0.75f, 0.8f, 0.84f, 1);
     }
-    hud.drawText(float(hud.width) - 250, float(hud.height) - 28, 1.6f, "(C) OSM / GSI", 0.85f, 0.88f, 0.9f, 1);
+    hud.DrawText(float(hud.Width()) - 250, float(hud.Height()) - 28, 1.6f, "(C) OSM / GSI", 0.85f, 0.88f, 0.9f, 1);
     if (app.paused) {
-        hud.drawText(float(hud.width) * 0.5f - 70, float(hud.height) * 0.45f, 5.0f, "PAUSE", 1, 0.95f, 0.9f, 1);
+        hud.DrawText(float(hud.Width()) * 0.5f - 70, float(hud.Height()) * 0.45f, 5.0f, "PAUSE", 1, 0.95f, 0.9f, 1);
     }
     drawMinimap(app);
-    hud.flushHud();
+    hud.Flush();
 }
 
 float carPitch(const App& app) {
@@ -454,24 +456,23 @@ void frame(void* userdata) {
     int drawableW = 0;
     int drawableH = 0;
     SDL_GL_GetDrawableSize(app.window, &drawableW, &drawableH);
-    app.renderer.resize(drawableW, drawableH);
-    app.renderer.clearFrame();
-    app.renderer.drawSky();
+    app.renderer3d.Resize(drawableW, drawableH);
+    app.renderer2d.Resize(drawableW, drawableH);
 
     float aspect = float(drawableW) / float(drawableH > 0 ? drawableH : 1);
     Mat4 proj = perspective(60.0f * 3.14159265f / 180.0f, aspect, 0.15f, 4000.0f);
     Mat4 view = lookAt(app.camera.eye, app.camera.look, {0, 1, 0});
-    app.renderer.beginWorld(mul(proj, view), app.camera.eye);
+    app.renderer3d.BeginFrame(mul(proj, view), app.camera.eye);
 
     Mat4 identity;
-    app.renderer.draw(app.course, identity);
+    app.renderer3d.Draw(app.course, identity);
     Mat4 shadow = mul(translation(app.car.x, app.car.y + 0.08f, app.car.z), rotationY(app.car.yaw));
-    app.renderer.draw(app.shadow, shadow);
+    app.renderer3d.Draw(app.shadow, shadow);
 
     float pitch = carPitch(app);
     float roll = std::atan(app.car.ground.cross);
     Mat4 model = carModelMatrix(app.car, pitch, roll);
-    app.renderer.draw(app.body, model);
+    app.renderer3d.Draw(app.body, model);
     const float wheelX = 0.82f;
     const float wheelZ[2] = {1.42f, -1.38f};
     const float steerForWheel[2] = {app.car.steerAngle, 0};
@@ -479,7 +480,7 @@ void frame(void* userdata) {
         for (int side = -1; side <= 1; side += 2) {
             Mat4 place = mul(translation(float(side) * wheelX, 0.34f, wheelZ[i]),
                              mul(rotationY(steerForWheel[i]), rotationX(app.car.wheelSpin)));
-            app.renderer.draw(app.wheel, mul(model, place));
+            app.renderer3d.Draw(app.wheel, mul(model, place));
         }
     }
     drawHud(app);
@@ -586,7 +587,7 @@ bool initGl(App& app) {
         return false;
     }
     SDL_GL_SetSwapInterval(1);
-    if (!app.renderer.init()) {
+    if (!app.renderer3d.Init() || !app.renderer2d.Init()) {
         SDL_Log("GL init failed");
         return false;
     }
@@ -627,16 +628,16 @@ int main(int argc, char** argv) {
         return 1;
     }
     openPad(app);
-    app.course = app.renderer.upload(app.track.visual);
+    app.course = app.renderer3d.Upload(app.track.visual);
     CpuMesh body;
     CpuMesh wheel;
     CpuMesh shadow;
     buildCarBody(body);
     buildCarWheel(wheel);
     buildCarShadow(shadow);
-    app.body = app.renderer.upload(body);
-    app.wheel = app.renderer.upload(wheel);
-    app.shadow = app.renderer.upload(shadow);
+    app.body = app.renderer3d.Upload(body);
+    app.wheel = app.renderer3d.Upload(wheel);
+    app.shadow = app.renderer3d.Upload(shadow);
     app.car.reset(app.track);
     app.prevCounter = SDL_GetPerformanceCounter();
 
@@ -659,6 +660,12 @@ int main(int argc, char** argv) {
         Mix_Quit();
     }
     if (imageOk) IMG_Quit();
+    app.renderer3d.Release(app.course);
+    app.renderer3d.Release(app.body);
+    app.renderer3d.Release(app.wheel);
+    app.renderer3d.Release(app.shadow);
+    app.renderer2d.UnInit();
+    app.renderer3d.UnInit();
     SDL_GL_DeleteContext(app.gl);
     SDL_DestroyWindow(app.window);
     SDL_Quit();

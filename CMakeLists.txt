@@ -28,6 +28,7 @@ add_executable(racegame
     src/track.cpp
     src/car.cpp
     src/System/GlCommon.cpp
+    src/System/Input.cpp
     src/System/Renderer3D.cpp
     src/System/Renderer2D.cpp
 )

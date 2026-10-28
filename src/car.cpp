@@ -19,6 +19,15 @@ float maxSteerAt(float speed) {
     return 0.46f / (1.0f + std::fabs(speed) * 0.085f);
 }
 
+// 横位置から路面の材質を決める。縁石の内側 0.15 m までは路面、その外は芝として扱う。
+// 物理の段階 4 で TrackCollider に移す。
+const PhysicsMaterial& surfaceAt(const Track& track, float lateral) {
+    if (std::fabs(lateral) <= track.halfWidth + 0.15f) {
+        return Materials::kAsphalt;
+    }
+    return Materials::kRunoff;
+}
+
 }  // namespace
 
 void Car::reset(const Track& track) {
@@ -30,7 +39,7 @@ void Car::reset(const Track& track) {
     steerAngle = 0;
     wheelSpin = 0;
     brakeHold = 0;
-    onAsphalt = true;
+    surface = &Materials::kAsphalt;
     ground = track.query(x, z, y);
 }
 
@@ -85,14 +94,12 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     if (std::fabs(speed) > 0.05f) {
         force -= kRolling * (speed > 0 ? 1.0f : -1.0f);
     }
-    // 芝は加速が鈍く、速度も伸びない。横には滑らない。
-    if (!onAsphalt) {
-        if (force > 0) {
-            force *= 0.55f;
-        }
-        if (std::fabs(speed) > 0.2f) {
-            force -= 3.2f * (speed > 0 ? 1.0f : -1.0f);
-        }
+    // 路面の材質で駆動力を絞り、路面の転がり抵抗を足す。
+    if (force > 0) {
+        force *= surface->gripScale;
+    }
+    if (std::fabs(speed) > 0.2f) {
+        force -= surface->rollingResistance * (speed > 0 ? 1.0f : -1.0f);
     }
 
     speed += force * dt;
@@ -131,7 +138,7 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     float bankLimit = track.halfWidth + track.curbWidth;
     float bankLat = clampf(ground.lateral, -bankLimit, bankLimit);
     y = ground.centerY + bankLat * ground.cross;
-    onAsphalt = std::fabs(ground.lateral) <= track.halfWidth + 0.15f;
+    surface = &surfaceAt(track, ground.lateral);
 }
 
 void buildCarBody(CpuMesh& mesh) {

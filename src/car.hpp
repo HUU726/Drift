@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Physics/PhysicsMaterial.h"
 #include "meshbuild.hpp"
 #include "track.hpp"
 
@@ -18,7 +19,7 @@ struct Car {
     float steerAngle = 0;   // 前輪の切れ角（ラジアン、右が正）
     float wheelSpin = 0;
     float brakeHold = 0;    // 止まってから後退に入るまでの待ち時間
-    bool onAsphalt = true;
+    const PhysicsMaterial* surface = &Materials::kAsphalt;  // 車の下の路面
     TrackPose ground;
 
     void reset(const Track& track);

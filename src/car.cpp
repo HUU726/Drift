@@ -39,7 +39,7 @@ Car::Car() {
         wheel.bumpStopRate = kBumpStopRate;
         wheel.bumpStopReturn = kBumpStopReturn;
         wheel.antiRollRate = i < kRearLeft ? kFrontAntiRoll : kRearAntiRoll;
-        wheel.tire = &gripTire;
+        wheel.tire = i < kRearLeft ? static_cast<const ITireModel*>(&frontTire) : &rearGripTire;
         wheel.wheelInertia = kWheelInertia;
         wheel.rollingDecel = kRollingDecel;
         wheel.antiLock = kAntiLockBrakes;
@@ -56,7 +56,7 @@ Car::Car() {
 }
 
 void Car::UseDriftTires(bool drift) {
-    const ITireModel* rear = drift ? static_cast<const ITireModel*>(&driftTire) : &gripTire;
+    const ITireModel* rear = drift ? static_cast<const ITireModel*>(&rearDriftTire) : &rearGripTire;
     wheels[kRearLeft].tire = rear;
     wheels[kRearRight].tire = rear;
 }

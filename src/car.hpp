@@ -44,6 +44,7 @@ struct Car {
     void update(float dt, const DriveInput& input, const Track* track);
     // 後輪をドリフト用のタイヤにする（false でグリップ用に戻す）。前輪はグリップ用のまま。
     void UseDriftTires(bool drift);
+    bool RearDriftTires() const { return wheels[kRearLeft].tire == &rearDriftTire; }
     // 駆動をモーターにする（false でエンジンに戻す）。
     void UseMotor(bool motor);
     const IPowertrain& Powertrain() const { return *powertrain; }
@@ -56,9 +57,12 @@ struct Car {
     // 車輪の中心（車体の座標、原点から）。サスペンションの縮みを含む
     Vec3 WheelCenter(int wheel) const;
 
-    // タイヤのモデル。ドリフトの課題では、ここを差し替えるか、新しいモデルを足す。
-    GripTire gripTire;
-    DriftTire driftTire;
+    // タイヤのモデル。前輪と後輪で別々に持ち、試験コースの調整の画面で前後を別々に変えられる。
+    // 後輪はグリップ用とドリフト用を UseDriftTires で切り替える。ドリフトの課題では、ここを差し替えるか、
+    // 新しいモデルを足す。
+    GripTire frontTire;
+    GripTire rearGripTire;
+    DriftTire rearDriftTire;
     // 駆動系。エンジンとモーターのどちらかを使う。
     EnginePowertrain engine;
     MotorPowertrain motor;

@@ -4,6 +4,7 @@
 #include "GameObject/CarObject.h"
 #include "GameObject/TelemetryHudObject.h"
 #include "GameObject/TestGroundObject.h"
+#include "GameObject/TuningObject.h"
 #include "Scene/RaceScene.h"
 #include "System/Context.h"
 #include "System/Input.h"
@@ -16,6 +17,7 @@ bool TestScene::Init() {
     car_->SetSpawn(layout.spawn, layout.spawnYaw);
     camera_ = Add<CameraObject>();
     Add<TelemetryHudObject>();
+    Add<TuningObject>();
     return InitObjects();
 }
 

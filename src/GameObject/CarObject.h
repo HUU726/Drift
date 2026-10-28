@@ -23,6 +23,8 @@ public:
         spawnYaw_ = yaw;
     }
     const Car& GetCar() const { return car_; }
+    // 調整の画面が、タイヤや運転の補助の値をプレイ中に書き換えるために使う。
+    Car& MutableCar() { return car_; }
 
 private:
     const Track* track_ = nullptr;  // コースのないシーンでは null

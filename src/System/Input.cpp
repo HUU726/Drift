@@ -54,7 +54,7 @@ void Input::UnInit() {
 }
 
 void Input::BeginFrame() {
-    std::fill(std::begin(pressed_), std::end(pressed_), false);
+    std::fill(std::begin(pressed_), std::end(pressed_), 0);
 }
 
 void Input::OnEvent(const SDL_Event& event) {
@@ -65,6 +65,16 @@ void Input::OnEvent(const SDL_Event& event) {
         else if (code == SDL_SCANCODE_P) press(Action::Pause);
         else if (code == SDL_SCANCODE_H) press(Action::Help);
         else if (code == SDL_SCANCODE_T) press(Action::SwitchScene);
+        else if (code == SDL_SCANCODE_TAB) press(Action::MenuToggle);
+        else if (code == SDL_SCANCODE_E) press(Action::Export);
+    }
+    if (event.type == SDL_KEYDOWN) {
+        // 調整の画面の移動と値の増減。押し続けたときの繰り返しも受ける。
+        SDL_Scancode code = event.key.keysym.scancode;
+        if (code == SDL_SCANCODE_UP) press(Action::MenuUp);
+        else if (code == SDL_SCANCODE_DOWN) press(Action::MenuDown);
+        else if (code == SDL_SCANCODE_LEFT) press(Action::MenuLeft);
+        else if (code == SDL_SCANCODE_RIGHT) press(Action::MenuRight);
     } else if (event.type == SDL_CONTROLLERDEVICEADDED) {
         openPad();
     } else if (event.type == SDL_CONTROLLERDEVICEREMOVED && pad_ &&
@@ -81,10 +91,11 @@ void Input::OnEvent(const SDL_Event& event) {
 void Input::Poll() {
     const Uint8* keys = SDL_GetKeyboardState(nullptr);
     DriveInput input;
-    if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) input.throttle = 1;
-    if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) input.brake = 1;
-    if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) input.steer -= 1;
-    if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) input.steer += 1;
+    bool arrows = !menuMode_;
+    if (keys[SDL_SCANCODE_W] || (arrows && keys[SDL_SCANCODE_UP])) input.throttle = 1;
+    if (keys[SDL_SCANCODE_S] || (arrows && keys[SDL_SCANCODE_DOWN])) input.brake = 1;
+    if (keys[SDL_SCANCODE_A] || (arrows && keys[SDL_SCANCODE_LEFT])) input.steer -= 1;
+    if (keys[SDL_SCANCODE_D] || (arrows && keys[SDL_SCANCODE_RIGHT])) input.steer += 1;
 #ifndef __EMSCRIPTEN__
     if (pad_) {
         float throttle = stickAxis(pad_, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);

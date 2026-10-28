@@ -53,6 +53,7 @@ add_executable(racegame
     src/GameObject/HudObject.cpp
     src/GameObject/TestGroundObject.cpp
     src/GameObject/TelemetryHudObject.cpp
+    src/GameObject/TuningObject.cpp
     src/System/Renderer3D.cpp
     src/System/Renderer2D.cpp
 )

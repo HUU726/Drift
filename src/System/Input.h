@@ -13,6 +13,13 @@ enum class Action {
     Camera,
     Help,
     SwitchScene,  // レースと試験コースを切り替える
+    // 調整の画面（試験コース）。上下左右は押し続けると繰り返す。
+    MenuToggle,
+    MenuUp,
+    MenuDown,
+    MenuLeft,
+    MenuRight,
+    Export,
     Count,
 };
 
@@ -27,18 +34,23 @@ public:
     void Poll();
 
     const DriveInput& Drive() const { return drive_; }
-    bool Pressed(Action action) const { return pressed_[static_cast<int>(action)]; }
+    bool Pressed(Action action) const { return pressed_[static_cast<int>(action)] > 0; }
+    // このフレームで押された回数。フレームの間に何度も押したとき（キーの繰り返しなど）も数える。
+    int PressCount(Action action) const { return pressed_[static_cast<int>(action)]; }
+    // true の間は矢印キーを運転に使わない（調整の画面の操作に使う）。運転は WASD でできる。
+    void SetMenuMode(bool menu) { menuMode_ = menu; }
 
 private:
     void openPad();
-    void press(Action action) { pressed_[static_cast<int>(action)] = true; }
+    void press(Action action) { ++pressed_[static_cast<int>(action)]; }
 #ifdef __EMSCRIPTEN__
     void readBrowserPad();
 #endif
 
     SDL_GameController* pad_ = nullptr;
     DriveInput drive_;
-    bool pressed_[static_cast<int>(Action::Count)] = {};
+    bool menuMode_ = false;
+    int pressed_[static_cast<int>(Action::Count)] = {};
 #ifdef __EMSCRIPTEN__
     bool prevCamera_ = false;
     bool prevReset_ = false;

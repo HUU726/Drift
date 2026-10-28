@@ -8,8 +8,8 @@ TireForce ITireModel::Evaluate(float load, float slipRatio, float slipAngle, flo
         return out;
     }
     // ピークの滑りを 1 とした、前後と横の滑りの合計。
-    float sx = slipRatio / peakSlipRatio();
-    float sy = slipAngle / peakSlipAngle();
+    float sx = slipRatio / params.peakSlipRatio;
+    float sy = slipAngle / params.peakSlipAngle;
     float s = std::sqrt(sx * sx + sy * sy);
     if (s < 1e-6f) {
         return out;
@@ -20,7 +20,7 @@ TireForce ITireModel::Evaluate(float load, float slipRatio, float slipAngle, flo
         force = peak * s;
     } else {
         // ピークを越えると、滑りきったときの力へなめらかに下がる。
-        float slide = slideRatio();
+        float slide = params.slideRatio;
         force = peak * (slide + (1.0f - slide) * std::exp(-(s - 1.0f) * 2.0f));
         out.sliding = true;
     }

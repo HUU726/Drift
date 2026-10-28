@@ -79,6 +79,15 @@ void Car::reset(const Track& track) {
     ground = track.query(body.position.x, body.position.z, track.spawnY);
 }
 
+bool Car::Airborne() const {
+    for (const WheelCollider& wheel : wheels) {
+        if (wheel.grounded) {
+            return false;
+        }
+    }
+    return true;
+}
+
 Vec3 Car::Origin() const {
     return body.ToWorld(Vec3{0, -VehicleSpec::kCenterOfMassY, 0});
 }
@@ -100,6 +109,15 @@ void Car::stepGrip(float dt) {
     // たとえば横方向の速度、スリップ角、前後で違うグリップをここに足す。
     // アクセルとブレーキは update() 側、壁との接触は ColliderManager にある。
     // ------------------------------------------------------------------------
+    if (Airborne()) {
+        // 空中ではタイヤが路面に触れないので、向きの回り方と速度はそのまま残る。
+        // グリップが決めた回転は 0 として覚え、着地した後は空中で付いた回転を下の spin として消していく。
+        gripYawRate = 0;
+        body.yaw += body.yawRate * dt;
+        body.position.x += body.velocity.x * dt;
+        body.position.z += body.velocity.z * dt;
+        return;
+    }
     float speed = body.ForwardSpeed();
     float lateral = body.LateralSpeed();
     float yawRate = 0;
@@ -166,6 +184,10 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     }
     if (std::fabs(speed) > 0.2f) {
         force -= surface->rollingResistance * (speed > 0 ? 1.0f : -1.0f);
+    }
+    // 4 輪とも浮いている間は、タイヤの力（駆動、ブレーキ、転がり抵抗）がなく、空気抵抗だけが掛かる。
+    if (Airborne()) {
+        force = -kDrag * speed * std::fabs(speed);
     }
 
     speed += force * dt;

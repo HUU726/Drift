@@ -2,6 +2,7 @@
 
 #include "GameObject/GameObject.h"
 #include "Physics/BoxCollider.h"
+#include "Physics/RampCollider.h"
 #include "Physics/Rigidbody.h"
 #include "Physics/TrackCollider.h"
 #include "Vehicle/WheelCollider.h"
@@ -43,6 +44,7 @@ void ColliderManager::UnInit() {
     wheels_.clear();
     boxes_.clear();
     tracks_.clear();
+    ramps_.clear();
     touching_.clear();
 }
 
@@ -62,6 +64,10 @@ void ColliderManager::Register(TrackCollider* track) {
     tracks_.push_back(track);
 }
 
+void ColliderManager::Register(RampCollider* ramp) {
+    ramps_.push_back(ramp);
+}
+
 void ColliderManager::Unregister(Rigidbody* body) {
     bodies_.erase(std::remove(bodies_.begin(), bodies_.end(), body), bodies_.end());
 }
@@ -70,6 +76,7 @@ void ColliderManager::Unregister(Collider* collider) {
     wheels_.erase(std::remove(wheels_.begin(), wheels_.end(), collider), wheels_.end());
     boxes_.erase(std::remove(boxes_.begin(), boxes_.end(), collider), boxes_.end());
     tracks_.erase(std::remove(tracks_.begin(), tracks_.end(), collider), tracks_.end());
+    ramps_.erase(std::remove(ramps_.begin(), ramps_.end(), collider), ramps_.end());
     touching_.erase(std::remove_if(touching_.begin(), touching_.end(),
                                    [&](const auto& pair) { return pair.first == collider || pair.second == collider; }),
                     touching_.end());
@@ -86,17 +93,25 @@ void ColliderManager::Step(float dt) {
         if (!box->body) {
             continue;
         }
-        for (TrackCollider* track : tracks_) {
-            Contact contact;
-            if (!track->CollideBox(*box, contact)) {
-                continue;
-            }
+        auto handle = [&](Contact& contact) {
             resolve(contact);
-            std::pair<Collider*, Collider*> pair(box, track);
+            std::pair<Collider*, Collider*> pair(contact.self, contact.other);
             touchingNow.push_back(pair);
             bool began = std::find(touching_.begin(), touching_.end(), pair) == touching_.end();
             if (began && box->owner) {
                 box->owner->OnCollision(contact);
+            }
+        };
+        for (TrackCollider* track : tracks_) {
+            Contact contact;
+            if (track->CollideBox(*box, contact)) {
+                handle(contact);
+            }
+        }
+        for (RampCollider* ramp : ramps_) {
+            Contact contact;
+            if (ramp->CollideBox(*box, contact)) {
+                handle(contact);
             }
         }
     }
@@ -104,11 +119,18 @@ void ColliderManager::Step(float dt) {
 }
 
 RaycastHit ColliderManager::GroundAt(float x, float z, float yHint, float preferS) const {
-    // 路面は 1 つずつ調べ、yHint に高さがいちばん近いものを返す（今はコースが 1 つだけ）。
+    // コースは立体交差の上下を yHint と preferS で選んで 1 つ返す。ジャンプ台はその上に載る面で、
+    // レイの始点（yHint）より下にあればコースより高いほうを使う。
     RaycastHit best;
     for (const TrackCollider* track : tracks_) {
         RaycastHit hit = track->GroundAt(x, z, yHint, preferS);
         if (hit.hit && (!best.hit || std::fabs(hit.point.y - yHint) < std::fabs(best.point.y - yHint))) {
+            best = hit;
+        }
+    }
+    for (const RampCollider* ramp : ramps_) {
+        RaycastHit hit = ramp->GroundAt(x, z, yHint);
+        if (hit.hit && (!best.hit || hit.point.y > best.point.y)) {
             best = hit;
         }
     }

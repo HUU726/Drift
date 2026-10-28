@@ -1,6 +1,8 @@
 #include "SelfTest.h"
 
+#include "GameObject/RampObject.h"
 #include "Physics/BoxCollider.h"
+#include "Physics/RampCollider.h"
 #include "Physics/TrackCollider.h"
 #include "System/ColliderManager.h"
 #include "Vehicle/VehicleSpec.h"
@@ -9,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 namespace {
 
@@ -310,6 +313,76 @@ int crossingTest(const Track& track) {
     return 0;
 }
 
+// ramps.txt の最初のジャンプ台を 30 m/s で通る。4 輪とも路面から離れ、着地した後に姿勢が戻り、
+// 止まったときに落ち着いていて、値が発散しないことを確かめる。
+int rampTest(const Track& track) {
+    std::vector<RampSpec> specs = RampCollider::Load(RampObject::FindPath());
+    if (specs.empty()) {
+        std::printf("self-test ramp: ramps.txt がない\n");
+        return 12;
+    }
+    const RampSpec& spec = specs.front();
+    Rig rig(track);
+    RampCollider ramp(track, spec);
+    rig.physics.Register(&ramp);
+
+    // 台の 40 m 手前、台と同じ横位置に、コースの向きで置く。
+    const int n = static_cast<int>(track.samples.size());
+    float startS = spec.s - 40.0f;
+    int i = 0;
+    for (int k = 0; k < n; ++k) {
+        if (sGap(track, track.samples[k].s, startS) < sGap(track, track.samples[i].s, startS)) {
+            i = k;
+        }
+    }
+    const TrackSample& a = track.samples[i];
+    const TrackSample& b = track.samples[(i + 1) % n];
+    Vec3 forward = normalize(Vec3{b.x - a.x, 0, b.z - a.z});
+    Vec3 right{forward.z, 0, -forward.x};
+    Car& car = rig.car;
+    car.body.position = Vec3{a.x, a.y + VehicleSpec::kCenterOfMassY, a.z} + right * spec.lateral;
+    car.body.yaw = std::atan2(forward.x, forward.z);
+    car.body.velocity = forward * 30.0f;
+    car.ground = track.query(car.body.position.x, car.body.position.z, a.y, a.s);
+
+    bool allAirborne = false;
+    float air = 0;
+    float maxAir = 0;
+    float takeoffS = -1;
+    float landingS = -1;
+    for (int step = 0; step < 60 * 7; ++step) {
+        // 3 秒で台を越えて着地する。その後はブレーキで止め、止まった状態で落ち着きを見る（後退に入らない強さ）。
+        DriveInput input;
+        input.brake = step >= 60 * 3 ? 0.4f : 0.0f;
+        rig.Step(input, track);
+        if (car.Airborne()) {
+            if (!allAirborne) {
+                takeoffS = car.ground.s;
+            }
+            allAirborne = true;
+            air += kStep;
+            maxAir = std::max(maxAir, air);
+        } else if (air > 0) {
+            landingS = car.ground.s;
+            air = 0;
+        }
+        const Rigidbody& body = car.body;
+        if (!std::isfinite(body.position.y) || !std::isfinite(body.pitch) || !std::isfinite(body.roll) ||
+            !std::isfinite(body.velocity.x)) {
+            std::printf("self-test ramp non-finite\n");
+            return 1;
+        }
+    }
+    const Rigidbody& body = car.body;
+    float height = car.Origin().y - groundHeight(track, car);
+    std::printf("self-test ramp airtime %.2f s jump %.1f m speed %.1f km/h, end pitch %.3f roll %.3f vy %.3f height %.3f\n",
+                maxAir, landingS - takeoffS, car.ForwardSpeed() * 3.6f, body.pitch, body.roll, body.velocity.y, height);
+    if (!allAirborne) return 13;
+    if (car.Airborne() || std::fabs(body.roll) > 0.2f || std::fabs(body.pitch) > 0.2f) return 14;
+    if (std::fabs(body.velocity.y) > 0.1f || std::fabs(height) > 0.05f) return 15;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -329,5 +402,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return crossingTest(track);
+    result = crossingTest(track);
+    if (result != 0) {
+        return result;
+    }
+    return rampTest(track);
 }

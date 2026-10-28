@@ -51,7 +51,8 @@ float WheelCollider::Force() {
 }
 
 void WheelCollider::Reset() {
-    grounded = false;
+    // 置き直すのは路面の上なので、接地しているとみなす。最初の物理ステップで正しい値になる。
+    grounded = true;
     compression = 0;
     length = restLength;
     load = 0;

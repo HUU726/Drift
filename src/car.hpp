@@ -33,6 +33,8 @@ struct Car {
     void update(float dt, const DriveInput& input, const Track& track);
     // 前向きの速度（m/s）。正が前進
     float ForwardSpeed() const { return body.ForwardSpeed(); }
+    // 4 輪とも路面から離れているか
+    bool Airborne() const;
     // 車の原点（車体の真下の地面の高さ）。描画とカメラの基準。重心から VehicleSpec::kCenterOfMassY 下
     Vec3 Origin() const;
     // 車輪の中心（車体の座標、原点から）。サスペンションの縮みを含む

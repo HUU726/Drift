@@ -6,6 +6,7 @@
 #include <vector>
 
 class BoxCollider;
+class RampCollider;
 class TrackCollider;
 class WheelCollider;
 struct Rigidbody;
@@ -27,13 +28,14 @@ public:
     void Register(WheelCollider* wheel);
     void Register(BoxCollider* box);
     void Register(TrackCollider* track);
+    void Register(RampCollider* ramp);
     void Unregister(Rigidbody* body);
     void Unregister(Collider* collider);
 
     // FixedUpdate の直後に呼ぶ。接触が始まった組は owner に通知する。
     void Step(float dt);
 
-    // (x, z) の真下の路面。登録されたコースのうち、yHint に合う路面を返す。
+    // (x, z) の真下の路面。コースとジャンプ台のうち、yHint より下でいちばん高い面を返す。
     RaycastHit GroundAt(float x, float z, float yHint, float preferS) const;
 
 private:
@@ -44,6 +46,7 @@ private:
     std::vector<WheelCollider*> wheels_;
     std::vector<BoxCollider*> boxes_;
     std::vector<TrackCollider*> tracks_;
+    std::vector<RampCollider*> ramps_;
     std::vector<std::pair<Collider*, Collider*>> touching_;  // 前のステップで接触していた組
 };
 

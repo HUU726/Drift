@@ -1,0 +1,6 @@
+# ジャンプ台の配置。1 行に 1 台。
+# s: 周回位置（m）。台の手前の端
+# lateral: コースの中心からの横位置（m、右が正）。台の中心
+# length: 長さ（m）  width: 幅（m）  height: 奥の端の高さ（m）
+# s      lateral  length  width  height
+250      2.5      10.0    4.5    1.2

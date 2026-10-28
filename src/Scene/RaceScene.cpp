@@ -4,12 +4,14 @@
 #include "GameObject/CarObject.h"
 #include "GameObject/HudObject.h"
 #include "GameObject/RaceTimerObject.h"
+#include "GameObject/RampObject.h"
 #include "GameObject/TrackObject.h"
 #include "System/Context.h"
 #include "System/Input.h"
 
 bool RaceScene::Init() {
     Add<TrackObject>();
+    Add<RampObject>();
     car_ = Add<CarObject>();
     timer_ = Add<RaceTimerObject>();
     camera_ = Add<CameraObject>();

@@ -76,10 +76,10 @@ void HudObject::drawMinimap(System::Renderer2D& hud) {
         }
         hud.DrawLine(mapX(a.x), mapY(a.z), mapX(b.x), mapY(b.z), 2.0f, r, g, bl, 1);
     }
-    float mx = mapX(car.x);
-    float my = mapY(car.z);
-    Vec3 nose{std::sin(car.yaw), 0, std::cos(car.yaw)};
-    Vec3 side{std::cos(car.yaw), 0, -std::sin(car.yaw)};
+    float mx = mapX(car.body.position.x);
+    float my = mapY(car.body.position.z);
+    Vec3 nose{std::sin(car.body.yaw), 0, std::cos(car.body.yaw)};
+    Vec3 side{std::cos(car.body.yaw), 0, -std::sin(car.body.yaw)};
     float nx = mx + nose.x * 9.0f;
     float ny = my - nose.z * 9.0f;
     float lx = mx - nose.x * 5.0f + side.x * 5.0f;
@@ -96,7 +96,7 @@ void HudObject::Draw2D(System::Renderer2D& hud) {
     const Race& race = timer_->GetRace();
     const Track& track = track_->GetTrack();
     char line[96];
-    int kmh = static_cast<int>(std::lround(car.speed * 3.6f));
+    int kmh = static_cast<int>(std::lround(car.ForwardSpeed() * 3.6f));
     std::snprintf(line, sizeof(line), "%d KM/H", kmh);
     hud.DrawText(24, 22, 4.0f, line, 0.95f, 0.96f, 0.98f, 1);
 

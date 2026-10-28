@@ -31,16 +31,14 @@ const PhysicsMaterial& surfaceAt(const Track& track, float lateral) {
 }  // namespace
 
 void Car::reset(const Track& track) {
-    x = track.spawnX;
-    y = track.spawnY;
-    z = track.spawnZ;
-    yaw = track.spawnYaw;
-    speed = 0;
+    body = Rigidbody{};
+    body.position = {track.spawnX, track.spawnY, track.spawnZ};
+    body.yaw = track.spawnYaw;
     steerAngle = 0;
     wheelSpin = 0;
     brakeHold = 0;
     surface = &Materials::kAsphalt;
-    ground = track.query(x, z, y);
+    ground = track.query(body.position.x, body.position.z, body.position.y);
 }
 
 void Car::stepGrip(float dt) {
@@ -55,19 +53,22 @@ void Car::stepGrip(float dt) {
     // たとえば横方向の速度、スリップ角、前後で違うグリップをここに足す。
     // アクセル、ブレーキ、壁との接触は update() 側にある。
     // ------------------------------------------------------------------------
+    float speed = body.ForwardSpeed();
     float yawRate = 0;
     if (std::fabs(speed) > 0.05f) {
         yawRate = (speed / kWheelbase) * std::tan(steerAngle);
     }
     float slow = clampf(1.0f - std::fabs(speed) / 8.0f, 0.0f, 1.0f);
     yawRate += steerAngle * 0.9f * slow;
-    yaw += yawRate * dt;
+    body.yawRate = yawRate;
+    body.yaw += yawRate * dt;
 
-    x += std::sin(yaw) * speed * dt;
-    z += std::cos(yaw) * speed * dt;
+    body.velocity = body.Forward() * speed;  // 横の速度は 0
+    body.position = body.position + body.velocity * dt;
 }
 
 void Car::update(float dt, const DriveInput& input, const Track& track) {
+    float speed = body.ForwardSpeed();
     float target = clampf(input.steer, -1.0f, 1.0f) * maxSteerAt(speed);
     float step = kSteerRate * dt;
     steerAngle += clampf(target - steerAngle, -step, step);
@@ -109,11 +110,12 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     }
     speed = clampf(speed, -kMaxReverse, kMaxSpeed);
     wheelSpin += speed / kWheelRadius * dt;
+    body.velocity = body.Forward() * speed;
 
     stepGrip(dt);
 
     float preferS = ground.found ? ground.s : -1.0f;
-    ground = track.query(x, z, y, preferS);
+    ground = track.query(body.position.x, body.position.z, body.position.y, preferS);
     if (!ground.found) {
         return;
     }
@@ -122,14 +124,14 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     if (std::fabs(ground.lateral) > wall) {
         float sign = ground.lateral > 0 ? 1.0f : -1.0f;
         float overflow = std::fabs(ground.lateral) - wall;
-        x -= ground.rightX * sign * overflow;
-        z -= ground.rightZ * sign * overflow;
+        body.position.x -= ground.rightX * sign * overflow;
+        body.position.z -= ground.rightZ * sign * overflow;
         // 壁の外へ向いている分だけ速度を落とす。コースに沿っているときは壁を擦るだけ。
-        float facingOut = sign * (std::sin(yaw) * ground.rightX + std::cos(yaw) * ground.rightZ);
+        float facingOut = sign * (std::sin(body.yaw) * ground.rightX + std::cos(body.yaw) * ground.rightZ);
         if (facingOut > 0.15f) {
             float cap = 2.0f + 8.0f * (1.0f - facingOut);
-            if (speed > cap) {
-                speed = cap;
+            if (body.ForwardSpeed() > cap) {
+                body.velocity = body.Forward() * cap;
             }
         }
         ground.lateral = sign * wall;
@@ -137,7 +139,7 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
 
     float bankLimit = track.halfWidth + track.curbWidth;
     float bankLat = clampf(ground.lateral, -bankLimit, bankLimit);
-    y = ground.centerY + bankLat * ground.cross;
+    body.position.y = ground.centerY + bankLat * ground.cross;
     surface = &surfaceAt(track, ground.lateral);
 }
 
@@ -194,13 +196,13 @@ void buildCarShadow(CpuMesh& mesh) {
 
 Mat4 carModelMatrix(const Car& car, float pitch, float roll) {
     Vec3 forward = normalize(Vec3{
-        std::sin(car.yaw) * std::cos(pitch),
+        std::sin(car.body.yaw) * std::cos(pitch),
         std::sin(pitch),
-        std::cos(car.yaw) * std::cos(pitch),
+        std::cos(car.body.yaw) * std::cos(pitch),
     });
-    Vec3 right0{std::cos(car.yaw), 0, -std::sin(car.yaw)};
+    Vec3 right0{std::cos(car.body.yaw), 0, -std::sin(car.body.yaw)};
     Vec3 up0 = normalize(cross(forward, right0));
     Vec3 right = normalize(right0 * std::cos(roll) + up0 * std::sin(roll));
     Vec3 up = normalize(cross(forward, right));
-    return basis({car.x, car.y, car.z}, right, up, forward);
+    return basis({car.body.position.x, car.body.position.y, car.body.position.z}, right, up, forward);
 }

@@ -42,10 +42,10 @@ void CarObject::LateUpdate(float dt) {
 }
 
 float CarObject::computePitch() const {
-    Vec3 forward{std::sin(car_.yaw), 0, std::cos(car_.yaw)};
+    Vec3 forward{std::sin(car_.body.yaw), 0, std::cos(car_.body.yaw)};
     float preferS = car_.ground.found ? car_.ground.s : -1.0f;
-    TrackPose ahead = track_->query(car_.x + forward.x * 2.4f, car_.z + forward.z * 2.4f, car_.y, preferS);
-    TrackPose behind = track_->query(car_.x - forward.x * 2.4f, car_.z - forward.z * 2.4f, car_.y, preferS);
+    TrackPose ahead = track_->query(car_.body.position.x + forward.x * 2.4f, car_.body.position.z + forward.z * 2.4f, car_.body.position.y, preferS);
+    TrackPose behind = track_->query(car_.body.position.x - forward.x * 2.4f, car_.body.position.z - forward.z * 2.4f, car_.body.position.y, preferS);
     if (!ahead.found || !behind.found) {
         return 0;
     }
@@ -53,7 +53,7 @@ float CarObject::computePitch() const {
 }
 
 void CarObject::Draw3D(System::Renderer3D& renderer) {
-    Mat4 shadow = mul(translation(car_.x, car_.y + 0.08f, car_.z), rotationY(car_.yaw));
+    Mat4 shadow = mul(translation(car_.body.position.x, car_.body.position.y + 0.08f, car_.body.position.z), rotationY(car_.body.yaw));
     renderer.Draw(shadow_, shadow);
 
     Mat4 model = carModelMatrix(car_, pitch_, roll_);

@@ -19,6 +19,7 @@ constexpr float kWheelX = 0.82f;            // 車輪の左右の位置（トレ
 constexpr float kFrontWheelZ = 1.42f;
 constexpr float kRearWheelZ = -1.38f;       // ホイールベース 2.80 m
 constexpr float kMountY = 0.54f;            // サスペンションの取付点の高さ
+constexpr float kBodyBoxCenterY = 0.66f;    // 当たり判定の箱（車体）の中心の高さ
 
 // サスペンション。止まっているとき 0.10 m 縮み、車輪の中心が 0.34 m（今の車高）になる。
 constexpr float kRestLength = 0.30f;        // 取付点から車輪の中心までの自然長

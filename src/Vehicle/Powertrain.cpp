@@ -10,14 +10,11 @@ constexpr float kRadPerSecToRpm = 60.0f / (2.0f * 3.14159265f);
 // エンジン
 constexpr float kIdleRpm = 1000.0f;
 constexpr float kRedlineRpm = 8000.0f;
-constexpr float kUpshiftRpm = 7200.0f;
-constexpr float kDownshiftRpm = 3500.0f;
 constexpr float kShiftTime = 0.15f;      // 変速中に駆動を切る時間（秒）
 constexpr float kEngineBrake = 0.006f;    // アクセル 0 のときの負のトルク（N·m / rpm、エンジン側）
 constexpr float kGearRatios[] = {3.20f, 2.20f, 1.60f, 1.25f, 1.00f, 0.82f};
 constexpr int kGearCount = 6;
 constexpr float kReverseRatio = 3.0f;
-constexpr float kFinalDrive = 3.9f;
 constexpr float kEfficiency = 0.85f;
 
 struct TorquePoint {
@@ -57,7 +54,7 @@ float EnginePowertrain::EngineTorque(float rpm) {
 
 float EnginePowertrain::ratio() const {
     float gear = gear_ < 0 ? -kReverseRatio : kGearRatios[gear_ - 1];
-    return gear * kFinalDrive;
+    return gear * finalDrive;
 }
 
 void EnginePowertrain::Reset() {
@@ -79,10 +76,10 @@ float EnginePowertrain::Update(float throttle, bool reverse, float wheelOmega, f
     // 自動変速。変速した直後は回転数がギア比の分だけ変わるので、上げと下げが往復しない。
     shiftTimer_ = std::max(0.0f, shiftTimer_ - dt);
     if (gear_ > 0 && shiftTimer_ <= 0) {
-        if (wheelRpm > kUpshiftRpm && gear_ < kGearCount) {
+        if (wheelRpm > upshiftRpm && gear_ < kGearCount) {
             ++gear_;
             shiftTimer_ = kShiftTime;
-        } else if (wheelRpm < kDownshiftRpm && gear_ > 1) {
+        } else if (wheelRpm < downshiftRpm && gear_ > 1) {
             --gear_;
             shiftTimer_ = kShiftTime;
         }
@@ -93,7 +90,7 @@ float EnginePowertrain::Update(float throttle, bool reverse, float wheelOmega, f
         return 0.0f;
     }
     if (throttle > 0.0f) {
-        return EngineTorque(rpm_) * throttle * ratio() * kEfficiency;
+        return EngineTorque(rpm_) * torqueScale * throttle * ratio() * kEfficiency;
     }
     // アクセルを離すとエンジンブレーキ。クラッチがつながる回転（アイドル以上）のときだけ効き、
     // 止まっている車を後ろへ押すことはない。

@@ -18,6 +18,7 @@ namespace {
 constexpr float kRadToDeg = 57.2958f;
 constexpr const char* kExportPath = "tuning.txt";
 constexpr float kMessageSeconds = 2.5f;
+constexpr int kVisibleRows = 14;  // 一覧に一度に出す項目の数
 
 }  // namespace
 
@@ -82,6 +83,79 @@ void TuningObject::buildItems() {
          [&car] { return car.airControl.landingAssist ? 1.0f : 0.0f; },
          [&car](float v) { car.airControl.landingAssist = v > 0.5f; }, "OFF", "ON"},
     };
+    for (size_t i = 0; i < items_.size(); ++i) {
+        items_[i].category = i < 6 ? "TIRES" : "ASSISTS";
+    }
+
+    auto add = [this](const char* category, Item item) {
+        item.category = category;
+        items_.push_back(item);
+    };
+    // 前輪と後輪のどちらかの 2 本に同じ値を入れる。
+    auto axle = [&car](bool front, const std::function<void(WheelCollider&)>& apply) {
+        int first = front ? Car::kFrontLeft : Car::kRearLeft;
+        apply(car.wheels[first]);
+        apply(car.wheels[first + 1]);
+    };
+
+    // 足回り
+    add("SUSPENSION", {"FRONT SPRING N/M", "front_spring", 10000, 80000, 1000,
+                       [&car] { return car.wheels[Car::kFrontLeft].springRate; },
+                       [axle](float v) { axle(true, [v](WheelCollider& w) { w.springRate = v; }); }});
+    add("SUSPENSION", {"REAR SPRING N/M", "rear_spring", 10000, 80000, 1000,
+                       [&car] { return car.wheels[Car::kRearLeft].springRate; },
+                       [axle](float v) { axle(false, [v](WheelCollider& w) { w.springRate = v; }); }});
+    add("SUSPENSION", {"DAMPING N S/M", "damping", 500, 6000, 100,
+                       [&car] { return car.wheels[0].damping; },
+                       [forEachWheel](float v) { forEachWheel([v](WheelCollider& w) { w.damping = v; }); }});
+    add("SUSPENSION", {"FRONT ANTI ROLL N/M", "front_anti_roll", 0, 40000, 1000,
+                       [&car] { return car.wheels[Car::kFrontLeft].antiRollRate; },
+                       [axle](float v) { axle(true, [v](WheelCollider& w) { w.antiRollRate = v; }); }});
+    add("SUSPENSION", {"REAR ANTI ROLL N/M", "rear_anti_roll", 0, 40000, 1000,
+                       [&car] { return car.wheels[Car::kRearLeft].antiRollRate; },
+                       [axle](float v) { axle(false, [v](WheelCollider& w) { w.antiRollRate = v; }); }});
+    add("SUSPENSION", {"CENTER OF MASS M", "center_of_mass_y", 0.25f, 0.80f, 0.01f,
+                       [&car] { return car.centerOfMassY; },
+                       [&car](float v) { car.SetCenterOfMassY(v); }});
+    // 駆動
+    add("DRIVETRAIN", {"POWER UNIT", "motor", 0, 1, 1,
+                       [&car] { return car.UsingMotor() ? 1.0f : 0.0f; },
+                       [&car](float v) { car.UseMotor(v > 0.5f); }, "ENGINE", "MOTOR"});
+    add("DRIVETRAIN", {"ENGINE TORQUE X", "engine_torque_scale", 0.5f, 2.5f, 0.05f,
+                       [&car] { return car.engine.torqueScale; },
+                       [&car](float v) { car.engine.torqueScale = v; }});
+    add("DRIVETRAIN", {"FINAL DRIVE", "final_drive", 2.5f, 6.0f, 0.1f,
+                       [&car] { return car.engine.finalDrive; },
+                       [&car](float v) { car.engine.finalDrive = v; }});
+    add("DRIVETRAIN", {"UPSHIFT RPM", "upshift_rpm", 4000, 8000, 100,
+                       [&car] { return car.engine.upshiftRpm; },
+                       [&car](float v) { car.engine.upshiftRpm = v; }});
+    add("DRIVETRAIN", {"DOWNSHIFT RPM", "downshift_rpm", 1500, 5000, 100,
+                       [&car] { return car.engine.downshiftRpm; },
+                       [&car](float v) { car.engine.downshiftRpm = v; }});
+    // ブレーキとハンドル
+    add("BRAKE AND STEERING", {"BRAKE M/S2", "brake_decel", 5, 40, 1,
+                               [&car] { return car.brakeDecel; },
+                               [&car](float v) { car.brakeDecel = v; }});
+    add("BRAKE AND STEERING", {"BRAKE FRONT SHARE", "brake_front_share", 0.3f, 0.8f, 0.05f,
+                               [&car] { return car.brakeFrontShare; },
+                               [&car](float v) { car.brakeFrontShare = v; }});
+    add("BRAKE AND STEERING", {"MAX STEER DEG", "max_steer_deg", 10, 45, 1,
+                               [&car] { return car.maxSteer * kRadToDeg; },
+                               [&car](float v) { car.maxSteer = v / kRadToDeg; }});
+    add("BRAKE AND STEERING", {"STEER SPEED FALLOFF", "steer_speed_falloff", 0, 0.2f, 0.005f,
+                               [&car] { return car.steerSpeedFalloff; },
+                               [&car](float v) { car.steerSpeedFalloff = v; }});
+    add("BRAKE AND STEERING", {"STEER RATE RAD/S", "steer_rate", 0.5f, 6.0f, 0.1f,
+                               [&car] { return car.steerRate; },
+                               [&car](float v) { car.steerRate = v; }});
+    // 車体
+    add("BODY", {"MASS KG", "mass", 800, 2000, 20,
+                 [&car] { return car.mass; },
+                 [&car](float v) { car.SetMass(v); }});
+    add("BODY", {"DRAG X10000", "drag_x10000", 0, 10, 0.1f,
+                 [&car] { return car.dragPerMass * 10000.0f; },
+                 [&car](float v) { car.SetDrag(v / 10000.0f); }});
 }
 
 std::string TuningObject::valueText(const Item& item) const {
@@ -90,7 +164,9 @@ std::string TuningObject::valueText(const Item& item) const {
         return value > 0.5f ? item.onText : item.offText;
     }
     char text[32];
-    std::snprintf(text, sizeof(text), item.step < 0.1f ? "%.2f" : "%.1f", value);
+    // 刻みに合わせた桁で出す（バネや回転数は整数、刻み 0.005 は 3 桁）。
+    const char* format = item.step < 0.01f ? "%.3f" : (item.step < 0.1f ? "%.2f" : (item.step < 1.0f ? "%.1f" : "%.0f"));
+    std::snprintf(text, sizeof(text), format, value);
     return text;
 }
 
@@ -108,6 +184,12 @@ void TuningObject::StartUpdate(float dt) {
     // 押した回数だけ動かす。フレームの間に何度も押しても取りこぼさない。
     int move = input.PressCount(System::Action::MenuDown) - input.PressCount(System::Action::MenuUp);
     selected_ = ((selected_ + move) % count + count) % count;
+    // 選んでいる項目が見えるように、一覧をスクロールする。
+    if (selected_ < firstVisible_) {
+        firstVisible_ = selected_;
+    } else if (selected_ >= firstVisible_ + kVisibleRows) {
+        firstVisible_ = selected_ - kVisibleRows + 1;
+    }
     int direction = input.PressCount(System::Action::MenuRight) - input.PressCount(System::Action::MenuLeft);
     if (direction != 0) {
         Item& item = items_[selected_];
@@ -140,7 +222,8 @@ void TuningObject::Draw2D(System::Renderer2D& hud) {
     const float width = 520.0f;
     const float x0 = 24.0f;
     const float y0 = 246.0f;
-    const float height = rowHeight * (float(items_.size()) + 2.0f) + 12.0f;
+    const int visibleRows = std::min<int>(kVisibleRows, static_cast<int>(items_.size()));
+    const float height = rowHeight * (float(visibleRows) + 2.0f) + 12.0f;
     if (messageTime_ > 0) {
         hud.DrawText(x0, y0 + (open_ ? height + 8 : 0), 2.0f, message_.c_str(), 0.95f, 0.85f, 0.4f, 1);
     }
@@ -148,9 +231,16 @@ void TuningObject::Draw2D(System::Renderer2D& hud) {
         return;
     }
     hud.AddQuad(x0, y0, x0 + width, y0 + height, 0.02f, 0.03f, 0.05f, 0.82f);
-    hud.DrawText(x0 + 12, y0 + 8, 1.8f, "TUNING  UP/DOWN SELECT  LEFT/RIGHT CHANGE  E SAVE", 0.95f, 0.8f, 0.35f, 1);
-    for (size_t i = 0; i < items_.size(); ++i) {
-        float y = y0 + 8 + rowHeight * float(i + 1) + 6;
+    // 見出し: 選んでいる項目の分類と、何番目か。下に操作の説明。
+    char title[96];
+    std::snprintf(title, sizeof(title), "TUNING  %s  %d/%d", items_[selected_].category, selected_ + 1,
+                  static_cast<int>(items_.size()));
+    hud.DrawText(x0 + 12, y0 + 8, 1.8f, title, 0.95f, 0.8f, 0.35f, 1);
+    hud.DrawText(x0 + 12, y0 + 8 + rowHeight * float(visibleRows + 1) + 6, 1.6f,
+                 "UP/DOWN SELECT  LEFT/RIGHT CHANGE  E SAVE  TAB CLOSE", 0.75f, 0.8f, 0.84f, 1);
+    for (int row = 0; row < visibleRows; ++row) {
+        size_t i = static_cast<size_t>(firstVisible_ + row);
+        float y = y0 + 8 + rowHeight * float(row + 1) + 6;
         bool selected = static_cast<int>(i) == selected_;
         if (selected) {
             hud.AddQuad(x0 + 6, y - 4, x0 + width - 6, y + rowHeight - 6, 0.25f, 0.32f, 0.45f, 0.9f);

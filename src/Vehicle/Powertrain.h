@@ -27,6 +27,12 @@ public:
     // トルクカーブ（rpm: N·m、間は線形補間）
     static float EngineTorque(float rpm);
 
+    // 試験コースの調整の画面でプレイ中に変えられる値
+    float torqueScale = 1.0f;     // トルクカーブ全体に掛ける倍率
+    float finalDrive = 3.9f;      // 最終減速比
+    float upshiftRpm = 7200.0f;   // この回転数を超えたら上げる
+    float downshiftRpm = 3500.0f; // この回転数を下回ったら下げる
+
 private:
     float ratio() const;
 

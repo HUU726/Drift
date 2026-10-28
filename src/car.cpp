@@ -7,17 +7,9 @@
 
 namespace {
 
-// 駆動は IPowertrain が決める。ブレーキは運転操作から車全体の減速（m/s²）として求める。
+// 駆動は IPowertrain が決める。ブレーキは運転操作から車全体の減速（brakeDecel、m/s²）として求める。
 // 実際に出る加速と減速は、タイヤが路面に伝えられる力（μ × 荷重）で決まる。
 constexpr float kMaxReverse = 9.0f;     // 後退の最高速度（m/s）。ここで駆動を切る
-constexpr float kBrake = 30.0f;
-constexpr float kSteerRate = 2.6f;
-// ブレーキの前後の配分（前の割合）
-constexpr float kBrakeFront = 0.6f;
-
-float maxSteerAt(float speed) {
-    return 0.46f / (1.0f + std::fabs(speed) * 0.085f);
-}
 
 }  // namespace
 
@@ -28,7 +20,7 @@ Car::Car() {
     for (int i = 0; i < kWheelCount; ++i) {
         WheelCollider& wheel = wheels[i];
         wheel.body = &body;
-        wheel.mount = Vec3{x[i], kMountY - kCenterOfMassY, z[i]};
+        wheel.mount = Vec3{x[i], kMountY - centerOfMassY, z[i]};
         wheel.radius = kWheelRadius;
         wheel.restLength = kRestLength;
         wheel.springRate = kSpringRate;
@@ -61,6 +53,31 @@ void Car::UseDriftTires(bool drift) {
     wheels[kRearRight].tire = rear;
 }
 
+void Car::SetMass(float newMass) {
+    float ratio = newMass / mass;
+    mass = newMass;
+    body.mass = newMass;
+    body.inertiaYaw *= ratio;
+    body.inertiaPitch *= ratio;
+    body.inertiaRoll *= ratio;
+    body.dragCoefficient = mass * dragPerMass;
+}
+
+void Car::SetDrag(float perMass) {
+    dragPerMass = perMass;
+    body.dragCoefficient = mass * dragPerMass;
+}
+
+void Car::SetCenterOfMassY(float height) {
+    // 原点（地面）の位置は変えずに、重心と、重心から見た取付点を動かす。
+    float delta = height - centerOfMassY;
+    centerOfMassY = height;
+    body.position.y += delta;
+    for (WheelCollider& wheel : wheels) {
+        wheel.mount.y = VehicleSpec::kMountY - height;
+    }
+}
+
 void Car::UseMotor(bool useMotor) {
     powertrain = useMotor ? static_cast<IPowertrain*>(&motor) : &engine;
     powertrain->Reset();
@@ -75,13 +92,15 @@ void Car::Place(Vec3 origin, float yaw) {
     body = Rigidbody{};
     body.position = origin;
     body.yaw = yaw;
-    body.mass = VehicleSpec::kMass;
-    body.inertiaYaw = VehicleSpec::kInertiaYaw;
-    body.inertiaPitch = VehicleSpec::kInertiaPitch;
-    body.inertiaRoll = VehicleSpec::kInertiaRoll;
-    body.dragCoefficient = VehicleSpec::kMass * VehicleSpec::kDrag;
+    // 慣性モーメントは、質量を変えたときに同じ形の箱として比例させる。
+    float massRatio = mass / VehicleSpec::kMass;
+    body.mass = mass;
+    body.inertiaYaw = VehicleSpec::kInertiaYaw * massRatio;
+    body.inertiaPitch = VehicleSpec::kInertiaPitch * massRatio;
+    body.inertiaRoll = VehicleSpec::kInertiaRoll * massRatio;
+    body.dragCoefficient = mass * dragPerMass;
     // 原点を地面に置く。サスペンションが止まっているときの縮みになる高さで、すぐに落ち着く。
-    body.position.y += VehicleSpec::kCenterOfMassY;
+    body.position.y += centerOfMassY;
     for (WheelCollider& wheel : wheels) {
         wheel.Reset();
     }
@@ -102,20 +121,22 @@ bool Car::Airborne() const {
 }
 
 Vec3 Car::Origin() const {
-    return body.ToWorld(Vec3{0, -VehicleSpec::kCenterOfMassY, 0});
+    return body.ToWorld(Vec3{0, -centerOfMassY, 0});
 }
 
 Vec3 Car::WheelCenter(int wheel) const {
     const WheelCollider& w = wheels[wheel];
-    return Vec3{w.mount.x, w.mount.y + VehicleSpec::kCenterOfMassY - w.length, w.mount.z};
+    return Vec3{w.mount.x, w.mount.y + centerOfMassY - w.length, w.mount.z};
 }
 
 void Car::update(float dt, const DriveInput& input, const Track* track) {
     float speed = body.ForwardSpeed();
-    float target = clampf(input.steer, -1.0f, 1.0f) * maxSteerAt(speed);
-    float step = kSteerRate * dt;
+    // 最大の切れ角は、速度が上がるほど小さくする（高速で切りすぎない）。
+    float maxSteerNow = maxSteer / (1.0f + std::fabs(speed) * steerSpeedFalloff);
+    float target = clampf(input.steer, -1.0f, 1.0f) * maxSteerNow;
+    float step = steerRate * dt;
     steerAngle += clampf(target - steerAngle, -step, step);
-    steerAngle = clampf(steerAngle, -0.6f, 0.6f);
+    steerAngle = clampf(steerAngle, -maxSteer, maxSteer);
 
     // 止まってブレーキを押し続けると後退に入る。後退に入った後は、速度が出てもブレーキを離すまで後退を続ける。
     bool holdingBrake = input.brake > 0.5f && input.throttle < 0.1f;
@@ -132,26 +153,25 @@ void Car::update(float dt, const DriveInput& input, const Track* track) {
     float throttle = 0;
     float brake = 0;
     if (input.brake > 0.05f && !reversing) {
-        brake = input.brake * kBrake;
+        brake = input.brake * brakeDecel;
     } else if (reversing) {
         throttle = speed > -kMaxReverse ? input.brake : 0.0f;
     } else if (input.throttle > 0.0f && speed > -0.4f) {
         throttle = input.throttle;
     } else if (input.throttle > 0.0f) {
-        brake = input.throttle * kBrake;  // 後ろへ動いている間のアクセルはブレーキとして効く
+        brake = input.throttle * brakeDecel;  // 後ろへ動いている間のアクセルはブレーキとして効く
     }
     float rearOmega = 0.5f * (wheels[kRearLeft].omega + wheels[kRearRight].omega);
     float axleTorque = powertrain->Update(throttle, reversing, rearOmega, dt);
 
     // 駆動は後輪の左右に均等（オープンデフ）、ブレーキは前 6 : 後 4。
-    const float mass = VehicleSpec::kMass;
     const float radius = VehicleSpec::kWheelRadius;
     for (int i = 0; i < kWheelCount; ++i) {
         WheelCollider& wheel = wheels[i];
         bool front = i < kRearLeft;
         wheel.steer = front ? steerAngle : 0.0f;
         float driveTorque = front ? 0.0f : axleTorque * 0.5f;
-        float brakeTorque = mass * brake * radius * 0.5f * (front ? kBrakeFront : 1.0f - kBrakeFront);
+        float brakeTorque = mass * brake * radius * 0.5f * (front ? brakeFrontShare : 1.0f - brakeFrontShare);
         wheel.driveTorque = driveTorque;
         wheel.brakeTorque = brakeTorque;
     }

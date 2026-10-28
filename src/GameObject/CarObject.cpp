@@ -5,6 +5,7 @@
 #include "System/ColliderManager.h"
 #include "System/Context.h"
 #include "System/Input.h"
+#include "Vehicle/VehicleSpec.h"
 
 #include <cmath>
 
@@ -48,6 +49,8 @@ void CarObject::Reset() {
 }
 
 void CarObject::FixedUpdate(float dt) {
+    // 重心の高さを変えたときに、当たり判定の箱の中心（重心から見た高さ）を合わせる。
+    box_.offset.y = VehicleSpec::kBodyBoxCenterY - car_.centerOfMassY;
     car_.update(dt, scene_.Ctx().input.Drive(), track_);
 }
 

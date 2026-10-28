@@ -1,7 +1,7 @@
 #pragma once
 
 // 路面ごとの摩擦と反発。タイヤと衝突の両方が読む共有データ。
-// 材質は使う段階で足す（縁石はタイヤモデル、壁は衝突、ジャンプ台は RampObject の段階）。
+// 材質は使う段階で足す（縁石はタイヤモデル、ジャンプ台は RampObject の段階）。
 struct PhysicsMaterial {
     const char* name;
     float friction;           // μ。タイヤモデル（物理の段階 8）から使う
@@ -15,5 +15,7 @@ namespace Materials {
 inline constexpr PhysicsMaterial kAsphalt{"Asphalt", 1.1f, 0.0f, 0.1f, 1.0f};
 // 芝。加速が鈍く、速度も伸びない。横には滑らない。
 inline constexpr PhysicsMaterial kRunoff{"Runoff", 0.6f, 3.2f, 0.1f, 0.55f};
+// 壁。車体が当たったときの摩擦と反発に使う。
+inline constexpr PhysicsMaterial kWall{"Wall", 0.3f, 0.0f, 0.2f, 1.0f};
 
 }  // namespace Materials

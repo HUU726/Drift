@@ -1,6 +1,7 @@
 #include "GameObject/TrackObject.h"
 
 #include "Scene/Scene.h"
+#include "System/ColliderManager.h"
 #include "System/Context.h"
 
 #include <cstdio>
@@ -28,6 +29,8 @@ bool TrackObject::Init() {
         return false;
     }
     course_ = scene_.Ctx().renderer3D.Upload(track_.visual);
+    collider_.owner = this;
+    scene_.Ctx().physics.Register(&collider_);
     return true;
 }
 
@@ -37,5 +40,6 @@ void TrackObject::Draw3D(System::Renderer3D& renderer) {
 }
 
 void TrackObject::UnInit() {
+    scene_.Ctx().physics.Unregister(&collider_);
     scene_.Ctx().renderer3D.Release(course_);
 }

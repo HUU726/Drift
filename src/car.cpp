@@ -14,6 +14,8 @@ constexpr float kRolling = 0.9f;
 constexpr float kWheelbase = 3.05f;
 constexpr float kSteerRate = 2.6f;
 constexpr float kWheelRadius = 0.34f;
+// 壁の衝突で加わった横の速度と回転を、タイヤのグリップが打ち消すまでの時定数（秒）。
+constexpr float kGripRecoverSec = 0.15f;
 
 float maxSteerAt(float speed) {
     return 0.46f / (1.0f + std::fabs(speed) * 0.085f);
@@ -37,6 +39,7 @@ void Car::reset(const Track& track) {
     steerAngle = 0;
     wheelSpin = 0;
     brakeHold = 0;
+    gripYawRate = 0;
     surface = &Materials::kAsphalt;
     ground = track.query(body.position.x, body.position.z, body.position.y);
 }
@@ -51,24 +54,32 @@ void Car::stepGrip(float dt) {
     //
     // ドリフトの課題では、この関数を差し替える。
     // たとえば横方向の速度、スリップ角、前後で違うグリップをここに足す。
-    // アクセル、ブレーキ、壁との接触は update() 側にある。
+    // アクセルとブレーキは update() 側、壁との接触は ColliderManager にある。
     // ------------------------------------------------------------------------
     float speed = body.ForwardSpeed();
+    float lateral = body.LateralSpeed();
     float yawRate = 0;
     if (std::fabs(speed) > 0.05f) {
         yawRate = (speed / kWheelbase) * std::tan(steerAngle);
     }
     float slow = clampf(1.0f - std::fabs(speed) / 8.0f, 0.0f, 1.0f);
     yawRate += steerAngle * 0.9f * slow;
-    body.yawRate = yawRate;
-    body.yaw += yawRate * dt;
 
-    body.velocity = body.Forward() * speed;  // 横の速度は 0
+    // 壁の衝突で加わった横の速度と回転は、グリップですぐに消える。衝突がなければどちらも 0。
+    // 段階 8 のタイヤモデルで、タイヤの力として置き換える。
+    float recover = std::exp(-dt / kGripRecoverSec);
+    float spin = (body.yawRate - gripYawRate) * recover;
+    gripYawRate = yawRate;
+    body.yawRate = yawRate + spin;
+    body.yaw += body.yawRate * dt;
+
+    body.velocity = body.Forward() * speed + body.Right() * (lateral * recover);
     body.position = body.position + body.velocity * dt;
 }
 
 void Car::update(float dt, const DriveInput& input, const Track& track) {
     float speed = body.ForwardSpeed();
+    float lateral = body.LateralSpeed();
     float target = clampf(input.steer, -1.0f, 1.0f) * maxSteerAt(speed);
     float step = kSteerRate * dt;
     steerAngle += clampf(target - steerAngle, -step, step);
@@ -110,7 +121,7 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     }
     speed = clampf(speed, -kMaxReverse, kMaxSpeed);
     wheelSpin += speed / kWheelRadius * dt;
-    body.velocity = body.Forward() * speed;
+    body.velocity = body.Forward() * speed + body.Right() * lateral;
 
     stepGrip(dt);
 
@@ -120,23 +131,7 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
         return;
     }
 
-    const float wall = track.wallLateral();
-    if (std::fabs(ground.lateral) > wall) {
-        float sign = ground.lateral > 0 ? 1.0f : -1.0f;
-        float overflow = std::fabs(ground.lateral) - wall;
-        body.position.x -= ground.rightX * sign * overflow;
-        body.position.z -= ground.rightZ * sign * overflow;
-        // 壁の外へ向いている分だけ速度を落とす。コースに沿っているときは壁を擦るだけ。
-        float facingOut = sign * (std::sin(body.yaw) * ground.rightX + std::cos(body.yaw) * ground.rightZ);
-        if (facingOut > 0.15f) {
-            float cap = 2.0f + 8.0f * (1.0f - facingOut);
-            if (body.ForwardSpeed() > cap) {
-                body.velocity = body.Forward() * cap;
-            }
-        }
-        ground.lateral = sign * wall;
-    }
-
+    // 壁との接触は ColliderManager が解決する（TrackCollider と車体の BoxCollider）。
     float bankLimit = track.halfWidth + track.curbWidth;
     float bankLat = clampf(ground.lateral, -bankLimit, bankLimit);
     body.position.y = ground.centerY + bankLat * ground.cross;

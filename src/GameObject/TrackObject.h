@@ -1,12 +1,13 @@
 #pragma once
 
 #include "GameObject/GameObject.h"
+#include "Physics/TrackCollider.h"
 #include "System/Renderer3D.h"
 #include "track.hpp"
 
 #include <string>
 
-// コース。Track を読み込み、コースのメッシュを描く。
+// コース。Track を読み込み、コースのメッシュを描き、壁の当たり判定を登録する。
 class TrackObject : public GameObject {
 public:
     explicit TrackObject(Scene& scene) : GameObject(scene) { order = 0; }
@@ -21,5 +22,6 @@ public:
 
 private:
     Track track_;
+    TrackCollider collider_{track_};
     System::GpuMesh course_;
 };

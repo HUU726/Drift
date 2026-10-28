@@ -16,6 +16,7 @@ struct Car {
     float steerAngle = 0;   // 前輪の切れ角（ラジアン、右が正）
     float wheelSpin = 0;
     float brakeHold = 0;    // 止まってから後退に入るまでの待ち時間
+    float gripYawRate = 0;  // 前のステップでグリップが決めたヨーレート。衝突で加わった回転との差を見る
     const PhysicsMaterial* surface = &Materials::kAsphalt;  // 車の下の路面
     TrackPose ground;
 

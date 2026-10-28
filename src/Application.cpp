@@ -42,12 +42,14 @@ bool App::Init(int argc, char** argv) {
         SDL_Log("IMG_Init failed: %s", IMG_GetError());
     }
 
-    // System のマネージャは Renderer3D → Renderer2D → SoundManager → SceneManager の順に初期化し、逆順に解放する。
+    // System のマネージャは Renderer3D → Renderer2D → SoundManager → ColliderManager → SceneManager の順に
+    // 初期化し、逆順に解放する。シーンの Init で Collider を登録するので、ColliderManager はシーンより先。
     if (!initGl()) {
         UnInit();
         return false;
     }
     sound_.Init();
+    physics_.Init();
     input_.Init();
     if (!scenes_.Init<RaceScene>(ctx_)) {
         UnInit();
@@ -139,6 +141,7 @@ void App::frame() {
         int guard = 0;
         while (accumulator_ >= kFixedStepSec && guard < 8) {
             scenes_.FixedUpdate(float(kFixedStepSec));
+            physics_.Step(float(kFixedStepSec));
             scenes_.PostPhysicsUpdate(float(kFixedStepSec));
             accumulator_ -= kFixedStepSec;
             ++guard;
@@ -166,6 +169,7 @@ void App::UnInit() {
     }
     scenes_.UnInit();
     input_.UnInit();
+    physics_.UnInit();
     sound_.UnInit();
     if (imageOk_) IMG_Quit();
     if (gl_) {

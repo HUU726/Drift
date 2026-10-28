@@ -2,6 +2,7 @@
 
 #include "GameObject/TrackObject.h"
 #include "Scene/Scene.h"
+#include "System/ColliderManager.h"
 #include "System/Context.h"
 #include "System/Input.h"
 
@@ -24,6 +25,9 @@ bool CarObject::Init() {
     wheel_ = renderer.Upload(wheel);
     shadow_ = renderer.Upload(shadow);
     car_.reset(*track_);
+    box_.owner = this;
+    box_.body = &car_.body;
+    scene_.Ctx().physics.Register(&box_);
     return true;
 }
 
@@ -71,6 +75,7 @@ void CarObject::Draw3D(System::Renderer3D& renderer) {
 }
 
 void CarObject::UnInit() {
+    scene_.Ctx().physics.Unregister(&box_);
     System::Renderer3D& renderer = scene_.Ctx().renderer3D;
     renderer.Release(body_);
     renderer.Release(wheel_);

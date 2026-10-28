@@ -1,5 +1,6 @@
 #pragma once
 
+#include "System/ColliderManager.h"
 #include "System/Context.h"
 #include "System/Input.h"
 #include "System/Renderer2D.h"
@@ -29,9 +30,10 @@ private:
     System::Renderer3D renderer3d_;
     System::Renderer2D renderer2d_;
     System::SoundManager sound_;
+    System::ColliderManager physics_;
     System::Input input_;
     System::SceneManager scenes_;
-    System::Context ctx_{renderer3d_, renderer2d_, sound_, scenes_, input_};
+    System::Context ctx_{renderer3d_, renderer2d_, sound_, physics_, scenes_, input_};
 
     Track selfTestTrack_;  // --self-test のときだけ使う
     bool selfTest_ = false;

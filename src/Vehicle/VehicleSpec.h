@@ -10,6 +10,9 @@ constexpr float kCenterOfMassY = 0.45f;     // 原点から重心までの高さ
 constexpr float kInertiaYaw = 2630.0f;
 constexpr float kInertiaPitch = 2350.0f;
 constexpr float kInertiaRoll = 500.0f;
+// 空気抵抗。速度の 2 乗に掛けて減速（1/m）。エンジンの最大出力（約 230 kW）で、
+// 最高速度が 82 m/s（約 295 km/h）前後になる値
+constexpr float kDrag = 0.00029f;
 
 constexpr float kWheelRadius = 0.34f;
 constexpr float kWheelX = 0.82f;            // 車輪の左右の位置（トレッド 1.64 m）
@@ -31,7 +34,7 @@ constexpr float kRearAntiRoll = 8000.0f;
 
 // タイヤと車輪
 constexpr float kWheelInertia = 1.2f;       // kg·m²
-constexpr float kRollingDecel = 0.9f;       // タイヤ自身の転がり抵抗（車を減速させる加速度、m/s²）
+constexpr float kRollingDecel = 0.15f;      // タイヤ自身の転がり抵抗（車を減速させる加速度、m/s²。μr 約 0.015）
 constexpr bool kTractionControl = true;     // 駆動輪が空転しないように回転を抑える（切るとパワースライド）
 constexpr bool kAntiLockBrakes = true;      // ブレーキで車輪がロックしないように回転を保つ
 constexpr float kSlipControlShare = 0.8f;   // 上の 2 つが許すスリップ率（ピークに対する割合）

@@ -5,6 +5,7 @@
 #include "Physics/RampCollider.h"
 #include "Physics/TrackCollider.h"
 #include "System/ColliderManager.h"
+#include "Vehicle/Powertrain.h"
 #include "Vehicle/VehicleSpec.h"
 #include "car.hpp"
 
@@ -391,6 +392,31 @@ int rampTest(const Track& track) {
     return 0;
 }
 
+// エンジンと変速だけを、滑らない車輪の 1 次元の車で 2 分間全開にする。
+// 6 速まで上がり、最高速度が 82 m/s 前後（75〜90 m/s）になることを確かめる。
+int powertrainTest() {
+    EnginePowertrain engine;
+    engine.Reset();
+    const float mass = VehicleSpec::kMass;
+    const float radius = VehicleSpec::kWheelRadius;
+    float v = 0;
+    float to100 = -1;
+    int topGear = 0;
+    for (int step = 0; step < 60 * 120; ++step) {
+        float torque = engine.Update(1.0f, false, v / radius, kStep);
+        float force = torque / radius - mass * VehicleSpec::kDrag * v * v - mass * VehicleSpec::kRollingDecel;
+        v = std::max(0.0f, v + force / mass * kStep);
+        topGear = std::max(topGear, engine.Gear());
+        if (to100 < 0 && v >= 100.0f / 3.6f) {
+            to100 = step * kStep;
+        }
+    }
+    std::printf("self-test powertrain top %.1f m/s (%.0f km/h) gear %d rpm %.0f, 0-100 km/h %.2f s (no wheelspin)\n",
+                v, v * 3.6f, topGear, engine.Rpm(), to100);
+    if (topGear != 6 || v < 75.0f || v > 90.0f) return 16;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -414,5 +440,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return rampTest(track);
+    result = rampTest(track);
+    if (result != 0) {
+        return result;
+    }
+    return powertrainTest();
 }

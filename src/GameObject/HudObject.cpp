@@ -99,6 +99,13 @@ void HudObject::Draw2D(System::Renderer2D& hud) {
     int kmh = static_cast<int>(std::lround(car.ForwardSpeed() * 3.6f));
     std::snprintf(line, sizeof(line), "%d KM/H", kmh);
     hud.DrawText(24, 22, 4.0f, line, 0.95f, 0.96f, 0.98f, 1);
+    const IPowertrain& powertrain = car.Powertrain();
+    if (powertrain.Gear() < 0) {
+        std::snprintf(line, sizeof(line), "R  %d RPM", static_cast<int>(powertrain.Rpm()));
+    } else {
+        std::snprintf(line, sizeof(line), "%d  %d RPM", powertrain.Gear(), static_cast<int>(powertrain.Rpm()));
+    }
+    hud.DrawText(250, 34, 2.2f, line, 0.85f, 0.88f, 0.92f, 1);
 
     if (!race.timing) {
         std::snprintf(line, sizeof(line), "OUT LAP");

@@ -14,7 +14,7 @@ inline constexpr PhysicsMaterial kAsphalt{"Asphalt", 1.1f, 0.0f, 0.1f};
 // 縁石。路面の外側 curb_width の帯。少し滑りやすい。
 inline constexpr PhysicsMaterial kCurb{"Curb", 0.95f, 0.0f, 0.1f};
 // 芝。滑りやすく、転がり抵抗が大きいので速度も伸びない。
-// 転がり抵抗は、μ 0.6 の後輪で出せる加速（約 2.6 m/s²）より小さくする。大きいと芝から出られない。
+// 転がり抵抗は、芝の上の後輪で出せる加速（約 3.4 m/s²）より十分小さくする。大きいと芝から出られない。
 inline constexpr PhysicsMaterial kRunoff{"Runoff", 0.6f, 1.2f, 0.1f};
 // 壁。車体が当たったときの摩擦と反発に使う。
 inline constexpr PhysicsMaterial kWall{"Wall", 0.3f, 0.0f, 0.2f};

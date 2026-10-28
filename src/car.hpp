@@ -2,6 +2,7 @@
 
 #include "Physics/PhysicsMaterial.h"
 #include "Physics/Rigidbody.h"
+#include "Vehicle/Powertrain.h"
 #include "Vehicle/TireModel.h"
 #include "Vehicle/WheelCollider.h"
 #include "meshbuild.hpp"
@@ -32,6 +33,9 @@ struct Car {
     void update(float dt, const DriveInput& input, const Track& track);
     // 後輪をドリフト用のタイヤにする（false でグリップ用に戻す）。前輪はグリップ用のまま。
     void UseDriftTires(bool drift);
+    // 駆動をモーターにする（false でエンジンに戻す）。
+    void UseMotor(bool motor);
+    const IPowertrain& Powertrain() const { return *powertrain; }
     // 前向きの速度（m/s）。正が前進
     float ForwardSpeed() const { return body.ForwardSpeed(); }
     // 4 輪とも路面から離れているか
@@ -44,6 +48,10 @@ struct Car {
     // タイヤのモデル。ドリフトの課題では、ここを差し替えるか、新しいモデルを足す。
     GripTire gripTire;
     DriftTire driftTire;
+    // 駆動系。エンジンとモーターのどちらかを使う。
+    EnginePowertrain engine;
+    MotorPowertrain motor;
+    IPowertrain* powertrain = &engine;
 };
 
 void buildCarBody(CpuMesh& mesh);

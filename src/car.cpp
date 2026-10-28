@@ -7,14 +7,10 @@
 
 namespace {
 
-// 運転操作から求める、車全体の加速と減速（m/s²）。段階 9 でエンジンと駆動系に置き換える。
+// 駆動は IPowertrain が決める。ブレーキは運転操作から車全体の減速（m/s²）として求める。
 // 実際に出る加速と減速は、タイヤが路面に伝えられる力（μ × 荷重）で決まる。
-constexpr float kMaxSpeed = 82.0f;      // 約 295 km/h。ここで駆動が 0 になる
-constexpr float kMaxReverse = 9.0f;
-constexpr float kAccel = 13.0f;
+constexpr float kMaxReverse = 9.0f;     // 後退の最高速度（m/s）。ここで駆動を切る
 constexpr float kBrake = 30.0f;
-constexpr float kReverseAccel = 8.0f;
-constexpr float kDrag = 0.00045f;       // 空気抵抗。速度の 2 乗に掛けて減速（1/m）
 constexpr float kSteerRate = 2.6f;
 // ブレーキの前後の配分（前の割合）
 constexpr float kBrakeFront = 0.6f;
@@ -62,6 +58,11 @@ void Car::UseDriftTires(bool drift) {
     wheels[kRearRight].tire = rear;
 }
 
+void Car::UseMotor(bool useMotor) {
+    powertrain = useMotor ? static_cast<IPowertrain*>(&motor) : &engine;
+    powertrain->Reset();
+}
+
 void Car::reset(const Track& track) {
     body = Rigidbody{};
     body.position = {track.spawnX, track.spawnY, track.spawnZ};
@@ -70,7 +71,7 @@ void Car::reset(const Track& track) {
     body.inertiaYaw = VehicleSpec::kInertiaYaw;
     body.inertiaPitch = VehicleSpec::kInertiaPitch;
     body.inertiaRoll = VehicleSpec::kInertiaRoll;
-    body.dragCoefficient = VehicleSpec::kMass * kDrag;
+    body.dragCoefficient = VehicleSpec::kMass * VehicleSpec::kDrag;
     // 原点を地面に置く。サスペンションが止まっているときの縮みになる高さで、すぐに落ち着く。
     body.position.y += VehicleSpec::kCenterOfMassY;
     for (WheelCollider& wheel : wheels) {
@@ -78,6 +79,7 @@ void Car::reset(const Track& track) {
     }
     steerAngle = 0;
     brakeHold = 0;
+    powertrain->Reset();
     ground = track.query(body.position.x, body.position.z, track.spawnY);
 }
 
@@ -117,28 +119,29 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     }
     bool reversing = brakeHold > 0.28f;
 
-    // 車全体として出したい駆動の加速と、ブレーキの減速（m/s²）。
-    float drive = 0;
+    // 駆動系に渡すアクセル開度と、ブレーキの減速（m/s²）。後退中はブレーキの踏み込みをアクセルとして使う。
+    float throttle = 0;
     float brake = 0;
     if (input.brake > 0.05f && !reversing) {
         brake = input.brake * kBrake;
     } else if (reversing) {
-        drive = speed > -kMaxReverse ? -input.brake * kReverseAccel : 0.0f;
+        throttle = speed > -kMaxReverse ? input.brake : 0.0f;
     } else if (input.throttle > 0.0f && speed > -0.4f) {
-        float ratio = clampf(speed / kMaxSpeed, 0.0f, 1.0f);
-        drive = input.throttle * kAccel * (1.0f - ratio * ratio);
+        throttle = input.throttle;
     } else if (input.throttle > 0.0f) {
         brake = input.throttle * kBrake;  // 後ろへ動いている間のアクセルはブレーキとして効く
     }
+    float rearOmega = 0.5f * (wheels[kRearLeft].omega + wheels[kRearRight].omega);
+    float axleTorque = powertrain->Update(throttle, reversing, rearOmega, dt);
 
-    // 加速と減速を、車輪のトルクにする。駆動は後輪の 2 本、ブレーキは前 6 : 後 4。
+    // 駆動は後輪の左右に均等（オープンデフ）、ブレーキは前 6 : 後 4。
     const float mass = VehicleSpec::kMass;
     const float radius = VehicleSpec::kWheelRadius;
     for (int i = 0; i < kWheelCount; ++i) {
         WheelCollider& wheel = wheels[i];
         bool front = i < kRearLeft;
         wheel.steer = front ? steerAngle : 0.0f;
-        float driveTorque = front ? 0.0f : mass * drive * radius * 0.5f;
+        float driveTorque = front ? 0.0f : axleTorque * 0.5f;
         float brakeTorque = mass * brake * radius * 0.5f * (front ? kBrakeFront : 1.0f - kBrakeFront);
         wheel.driveTorque = driveTorque;
         wheel.brakeTorque = brakeTorque;

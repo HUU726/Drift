@@ -2,7 +2,9 @@
 
 #include "GameObject/GameObject.h"
 #include "Physics/BoxCollider.h"
+#include "Physics/Rigidbody.h"
 #include "Physics/TrackCollider.h"
+#include "Vehicle/WheelCollider.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,6 +26,12 @@ float crossY(Vec3 r, Vec3 v) {
     return r.z * v.x - r.x * v.z;
 }
 
+// 壁の衝突は水平面で解く。上下の速度と pitch / roll の回転は含めない。
+Vec3 planarVelocityAt(const Rigidbody& body, Vec3 point) {
+    Vec3 r = point - body.position;
+    return Vec3{body.velocity.x + body.yawRate * r.z, 0, body.velocity.z - body.yawRate * r.x};
+}
+
 }  // namespace
 
 bool ColliderManager::Init() {
@@ -31,9 +39,19 @@ bool ColliderManager::Init() {
 }
 
 void ColliderManager::UnInit() {
+    bodies_.clear();
+    wheels_.clear();
     boxes_.clear();
     tracks_.clear();
     touching_.clear();
+}
+
+void ColliderManager::Register(Rigidbody* body) {
+    bodies_.push_back(body);
+}
+
+void ColliderManager::Register(WheelCollider* wheel) {
+    wheels_.push_back(wheel);
 }
 
 void ColliderManager::Register(BoxCollider* box) {
@@ -44,7 +62,12 @@ void ColliderManager::Register(TrackCollider* track) {
     tracks_.push_back(track);
 }
 
+void ColliderManager::Unregister(Rigidbody* body) {
+    bodies_.erase(std::remove(bodies_.begin(), bodies_.end(), body), bodies_.end());
+}
+
 void ColliderManager::Unregister(Collider* collider) {
+    wheels_.erase(std::remove(wheels_.begin(), wheels_.end(), collider), wheels_.end());
     boxes_.erase(std::remove(boxes_.begin(), boxes_.end(), collider), boxes_.end());
     tracks_.erase(std::remove(tracks_.begin(), tracks_.end(), collider), tracks_.end());
     touching_.erase(std::remove_if(touching_.begin(), touching_.end(),
@@ -53,7 +76,11 @@ void ColliderManager::Unregister(Collider* collider) {
 }
 
 void ColliderManager::Step(float dt) {
-    (void)dt;
+    float h = dt / kSubsteps;
+    for (int i = 0; i < kSubsteps; ++i) {
+        stepSuspension(h);
+    }
+
     std::vector<std::pair<Collider*, Collider*>> touchingNow;
     for (BoxCollider* box : boxes_) {
         if (!box->body) {
@@ -76,11 +103,58 @@ void ColliderManager::Step(float dt) {
     touching_ = std::move(touchingNow);
 }
 
+RaycastHit ColliderManager::GroundAt(float x, float z, float yHint, float preferS) const {
+    // 路面は 1 つずつ調べ、yHint に高さがいちばん近いものを返す（今はコースが 1 つだけ）。
+    RaycastHit best;
+    for (const TrackCollider* track : tracks_) {
+        RaycastHit hit = track->GroundAt(x, z, yHint, preferS);
+        if (hit.hit && (!best.hit || std::fabs(hit.point.y - yHint) < std::fabs(best.point.y - yHint))) {
+            best = hit;
+        }
+    }
+    return best;
+}
+
+void ColliderManager::stepSuspension(float dt) {
+    // 先に全輪の縮みを求めてから力を加える。スタビライザーが反対側の縮みを読むため。
+    for (WheelCollider* wheel : wheels_) {
+        Vec3 mountWorld = wheel->body->ToWorld(wheel->mount);
+        RaycastHit hit = GroundAt(mountWorld.x, mountWorld.z, mountWorld.y, wheel->lastS);
+        wheel->Update(hit, mountWorld, dt);
+    }
+    for (WheelCollider* wheel : wheels_) {
+        float force = wheel->Force();
+        if (force > 0) {
+            wheel->body->AddForceAt(Vec3{0, force, 0}, wheel->body->ToWorld(wheel->mount));
+        }
+    }
+    for (Rigidbody* body : bodies_) {
+        body->IntegrateVertical(dt, kGravity);
+    }
+    // 底突き: 縮みきって車輪が取付点まで来た輪では、その点の下向きの速度を力積で止め、めり込んだ分を押し戻す。
+    for (WheelCollider* wheel : wheels_) {
+        if (!wheel->grounded) {
+            continue;
+        }
+        Rigidbody& body = *wheel->body;
+        Vec3 mountWorld = body.ToWorld(wheel->mount);
+        float penetration = wheel->groundY + wheel->radius - mountWorld.y;
+        if (penetration <= 0) {
+            continue;
+        }
+        body.position.y += penetration;
+        float down = body.VelocityAt(mountWorld).y;
+        if (down < 0) {
+            body.AddVerticalImpulseAt(-down / body.VerticalInverseMassAt(mountWorld), mountWorld);
+        }
+    }
+}
+
 void ColliderManager::resolve(Contact& contact) {
     Rigidbody& body = *contact.self->body;
     const Vec3 n = contact.normal;
     const Vec3 r = contact.point - body.position;
-    const Vec3 v = body.VelocityAt(contact.point);
+    const Vec3 v = planarVelocityAt(body, contact.point);
 
     // めり込んだ分だけ押し戻す。接触点も一緒に動くので、r は変わらない。
     body.position = body.position + n * contact.depth;
@@ -101,7 +175,7 @@ void ColliderManager::resolve(Contact& contact) {
     contact.impulse = jn;
 
     // 接線方向: 滑りを止める向きに、摩擦の上限（μ × 法線の力積）まで。
-    Vec3 vt = body.VelocityAt(contact.point);
+    Vec3 vt = planarVelocityAt(body, contact.point);
     vt = vt - n * dot(vt, n);
     float speedT = length(vt);
     if (speedT < 1e-4f) {

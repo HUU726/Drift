@@ -25,9 +25,16 @@ bool CarObject::Init() {
     wheel_ = renderer.Upload(wheel);
     shadow_ = renderer.Upload(shadow);
     car_.reset(*track_);
+
+    System::ColliderManager& physics = scene_.Ctx().physics;
+    physics.Register(&car_.body);
+    for (WheelCollider& w : car_.wheels) {
+        w.owner = this;
+        physics.Register(&w);
+    }
     box_.owner = this;
     box_.body = &car_.body;
-    scene_.Ctx().physics.Register(&box_);
+    physics.Register(&box_);
     return true;
 }
 
@@ -39,43 +46,32 @@ void CarObject::FixedUpdate(float dt) {
     car_.update(dt, scene_.Ctx().input.Drive(), *track_);
 }
 
-void CarObject::LateUpdate(float dt) {
-    (void)dt;
-    pitch_ = computePitch();
-    roll_ = std::atan(car_.ground.cross);
-}
-
-float CarObject::computePitch() const {
-    Vec3 forward{std::sin(car_.body.yaw), 0, std::cos(car_.body.yaw)};
-    float preferS = car_.ground.found ? car_.ground.s : -1.0f;
-    TrackPose ahead = track_->queryLocal(car_.body.position.x + forward.x * 2.4f, car_.body.position.z + forward.z * 2.4f, car_.body.position.y, preferS);
-    TrackPose behind = track_->queryLocal(car_.body.position.x - forward.x * 2.4f, car_.body.position.z - forward.z * 2.4f, car_.body.position.y, preferS);
-    if (!ahead.found || !behind.found) {
-        return 0;
-    }
-    return std::atan2(ahead.centerY - behind.centerY, 4.8f);
-}
-
 void CarObject::Draw3D(System::Renderer3D& renderer) {
-    Mat4 shadow = mul(translation(car_.body.position.x, car_.body.position.y + 0.08f, car_.body.position.z), rotationY(car_.body.yaw));
+    // 影は車の真下の路面に置く。車体が浮いても路面に残る。
+    Vec3 origin = car_.Origin();
+    const TrackPose& ground = car_.ground;
+    float bankLimit = track_->halfWidth + track_->curbWidth;
+    float groundY = ground.found ? ground.centerY + clampf(ground.lateral, -bankLimit, bankLimit) * ground.cross : origin.y;
+    Mat4 shadow = mul(translation(origin.x, groundY + 0.08f, origin.z), rotationY(car_.body.yaw));
     renderer.Draw(shadow_, shadow);
 
-    Mat4 model = carModelMatrix(car_, pitch_, roll_);
+    Mat4 model = carModelMatrix(car_);
     renderer.Draw(body_, model);
-    const float wheelX = 0.82f;
-    const float wheelZ[2] = {1.42f, -1.38f};
-    const float steerForWheel[2] = {car_.steerAngle, 0};
-    for (int i = 0; i < 2; ++i) {
-        for (int side = -1; side <= 1; side += 2) {
-            Mat4 place = mul(translation(float(side) * wheelX, 0.34f, wheelZ[i]),
-                             mul(rotationY(steerForWheel[i]), rotationX(car_.wheelSpin)));
-            renderer.Draw(wheel_, mul(model, place));
-        }
+    for (int i = 0; i < Car::kWheelCount; ++i) {
+        Vec3 center = car_.WheelCenter(i);
+        float steer = i < Car::kRearLeft ? car_.steerAngle : 0.0f;
+        Mat4 place = mul(translation(center.x, center.y, center.z), mul(rotationY(steer), rotationX(car_.wheelSpin)));
+        renderer.Draw(wheel_, mul(model, place));
     }
 }
 
 void CarObject::UnInit() {
-    scene_.Ctx().physics.Unregister(&box_);
+    System::ColliderManager& physics = scene_.Ctx().physics;
+    physics.Unregister(&box_);
+    for (WheelCollider& w : car_.wheels) {
+        physics.Unregister(&w);
+    }
+    physics.Unregister(&car_.body);
     System::Renderer3D& renderer = scene_.Ctx().renderer3D;
     renderer.Release(body_);
     renderer.Release(wheel_);

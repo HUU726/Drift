@@ -7,7 +7,7 @@
 class BoxCollider : public Collider {
 public:
     Vec3 halfExtents{0.95f, 0.4f, 2.275f};  // 車体の外形（幅、高さ、長さの半分）
-    Vec3 offset{0, 0.66f, 0.075f};         // body.position から箱の中心まで（車体の座標）
+    Vec3 offset{0, 0.21f, 0.075f};         // 重心（body.position）から箱の中心まで（車体の座標）
 
     // 水平面での 4 隅（ワールド座標）。前右、前左、後右、後左の順。
     void Corners(Vec3 out[4]) const {

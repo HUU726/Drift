@@ -17,6 +17,13 @@ struct Contact {
     float impulse = 0;  // 法線方向の力積（N·s）。当たりの強さ
 };
 
+// 路面へのレイ（真下向き）の結果。
+struct RaycastHit {
+    bool hit = false;
+    Vec3 point;     // 路面の点
+    float s = -1;   // 当たった路面の周回位置。次のレイで立体交差の上下を取り違えないように渡す
+};
+
 // 形状と材質を持つ当たり判定。GameObject がメンバとして持ち、ColliderManager に登録する。
 class Collider {
 public:

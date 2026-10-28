@@ -35,6 +35,7 @@ add_executable(racegame
     src/System/SoundManager.cpp
     src/System/ColliderManager.cpp
     src/Physics/TrackCollider.cpp
+    src/Vehicle/WheelCollider.cpp
     src/Scene/Scene.cpp
     src/Scene/RaceScene.cpp
     src/GameObject/TrackObject.cpp

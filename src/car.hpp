@@ -2,6 +2,7 @@
 
 #include "Physics/PhysicsMaterial.h"
 #include "Physics/Rigidbody.h"
+#include "Vehicle/WheelCollider.h"
 #include "meshbuild.hpp"
 #include "track.hpp"
 
@@ -12,7 +13,15 @@ struct DriveInput {
 };
 
 struct Car {
-    Rigidbody body;         // 位置、向き、速度、ヨーレート
+    // 車輪の並び。WheelCollider の配列の添字
+    enum Wheel { kFrontLeft, kFrontRight, kRearLeft, kRearRight, kWheelCount };
+
+    Car();
+    Car(const Car&) = delete;             // 車輪がスタビライザーの相手を指すので、コピーしない
+    Car& operator=(const Car&) = delete;
+
+    Rigidbody body;         // 重心の位置、向き、速度、角速度
+    WheelCollider wheels[kWheelCount];
     float steerAngle = 0;   // 前輪の切れ角（ラジアン、右が正）
     float wheelSpin = 0;
     float brakeHold = 0;    // 止まってから後退に入るまでの待ち時間
@@ -24,6 +33,10 @@ struct Car {
     void update(float dt, const DriveInput& input, const Track& track);
     // 前向きの速度（m/s）。正が前進
     float ForwardSpeed() const { return body.ForwardSpeed(); }
+    // 車の原点（車体の真下の地面の高さ）。描画とカメラの基準。重心から VehicleSpec::kCenterOfMassY 下
+    Vec3 Origin() const;
+    // 車輪の中心（車体の座標、原点から）。サスペンションの縮みを含む
+    Vec3 WheelCenter(int wheel) const;
 
     // グリップしたまま進む。ドリフトの課題ではこの関数を差し替える。
     void stepGrip(float dt);
@@ -32,4 +45,5 @@ struct Car {
 void buildCarBody(CpuMesh& mesh);
 void buildCarWheel(CpuMesh& mesh);
 void buildCarShadow(CpuMesh& mesh);
-Mat4 carModelMatrix(const Car& car, float pitch, float roll);
+// 車の原点に置き、Rigidbody の向き（yaw / pitch / roll）に合わせる行列。
+Mat4 carModelMatrix(const Car& car);

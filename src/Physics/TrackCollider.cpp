@@ -8,6 +8,20 @@ TrackCollider::TrackCollider(const Track& track) : track_(track) {
     material = &Materials::kWall;
 }
 
+RaycastHit TrackCollider::GroundAt(float x, float z, float yHint, float preferS) const {
+    RaycastHit hit;
+    TrackPose pose = track_.queryLocal(x, z, yHint, preferS);
+    if (!pose.found) {
+        return hit;
+    }
+    float bankLimit = track_.halfWidth + track_.curbWidth;
+    float bankLat = clampf(pose.lateral, -bankLimit, bankLimit);
+    hit.hit = true;
+    hit.point = Vec3{x, pose.centerY + bankLat * pose.cross, z};
+    hit.s = pose.s;
+    return hit;
+}
+
 bool TrackCollider::CollideBox(BoxCollider& box, Contact& out) {
     const Vec3& center = box.body->position;
     auto hint = lastS_.find(&box);

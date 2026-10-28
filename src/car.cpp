@@ -1,5 +1,7 @@
 #include "car.hpp"
 
+#include "Vehicle/VehicleSpec.h"
+
 #include <cmath>
 
 namespace {
@@ -13,7 +15,6 @@ constexpr float kDrag = 0.00045f;
 constexpr float kRolling = 0.9f;
 constexpr float kWheelbase = 3.05f;
 constexpr float kSteerRate = 2.6f;
-constexpr float kWheelRadius = 0.34f;
 // 壁の衝突で加わった横の速度と回転を、タイヤのグリップが打ち消すまでの時定数（秒）。
 constexpr float kGripRecoverSec = 0.15f;
 
@@ -32,16 +33,59 @@ const PhysicsMaterial& surfaceAt(const Track& track, float lateral) {
 
 }  // namespace
 
+Car::Car() {
+    using namespace VehicleSpec;
+    const float x[kWheelCount] = {-kWheelX, kWheelX, -kWheelX, kWheelX};
+    const float z[kWheelCount] = {kFrontWheelZ, kFrontWheelZ, kRearWheelZ, kRearWheelZ};
+    for (int i = 0; i < kWheelCount; ++i) {
+        WheelCollider& wheel = wheels[i];
+        wheel.body = &body;
+        wheel.mount = Vec3{x[i], kMountY - kCenterOfMassY, z[i]};
+        wheel.radius = kWheelRadius;
+        wheel.restLength = kRestLength;
+        wheel.springRate = kSpringRate;
+        wheel.damping = kDamping;
+        wheel.bumpDampingScale = kBumpDampingScale;
+        wheel.reboundDampingScale = kReboundDampingScale;
+        wheel.bumpStop = kBumpStop;
+        wheel.bumpStopRate = kBumpStopRate;
+        wheel.bumpStopReturn = kBumpStopReturn;
+        wheel.antiRollRate = i < kRearLeft ? kFrontAntiRoll : kRearAntiRoll;
+    }
+    wheels[kFrontLeft].antiRollPartner = &wheels[kFrontRight];
+    wheels[kFrontRight].antiRollPartner = &wheels[kFrontLeft];
+    wheels[kRearLeft].antiRollPartner = &wheels[kRearRight];
+    wheels[kRearRight].antiRollPartner = &wheels[kRearLeft];
+}
+
 void Car::reset(const Track& track) {
     body = Rigidbody{};
     body.position = {track.spawnX, track.spawnY, track.spawnZ};
     body.yaw = track.spawnYaw;
+    body.mass = VehicleSpec::kMass;
+    body.inertiaYaw = VehicleSpec::kInertiaYaw;
+    body.inertiaPitch = VehicleSpec::kInertiaPitch;
+    body.inertiaRoll = VehicleSpec::kInertiaRoll;
+    // 原点を地面に置く。サスペンションが止まっているときの縮みになる高さで、すぐに落ち着く。
+    body.position.y += VehicleSpec::kCenterOfMassY;
+    for (WheelCollider& wheel : wheels) {
+        wheel.Reset();
+    }
     steerAngle = 0;
     wheelSpin = 0;
     brakeHold = 0;
     gripYawRate = 0;
     surface = &Materials::kAsphalt;
-    ground = track.query(body.position.x, body.position.z, body.position.y);
+    ground = track.query(body.position.x, body.position.z, track.spawnY);
+}
+
+Vec3 Car::Origin() const {
+    return body.ToWorld(Vec3{0, -VehicleSpec::kCenterOfMassY, 0});
+}
+
+Vec3 Car::WheelCenter(int wheel) const {
+    const WheelCollider& w = wheels[wheel];
+    return Vec3{w.mount.x, w.mount.y + VehicleSpec::kCenterOfMassY - w.length, w.mount.z};
 }
 
 void Car::stepGrip(float dt) {
@@ -73,8 +117,12 @@ void Car::stepGrip(float dt) {
     body.yawRate = yawRate + spin;
     body.yaw += body.yawRate * dt;
 
+    // 水平の速度だけを決める。上下の速度と高さは ColliderManager がサスペンションで進める。
+    float vy = body.velocity.y;
     body.velocity = body.Forward() * speed + body.Right() * (lateral * recover);
-    body.position = body.position + body.velocity * dt;
+    body.velocity.y = vy;
+    body.position.x += body.velocity.x * dt;
+    body.position.z += body.velocity.z * dt;
 }
 
 void Car::update(float dt, const DriveInput& input, const Track& track) {
@@ -126,21 +174,20 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
         if (speedBefore <= 0 && speed > 0) speed = 0;
     }
     speed = clampf(speed, -kMaxReverse, kMaxSpeed);
-    wheelSpin += speed / kWheelRadius * dt;
+    wheelSpin += speed / VehicleSpec::kWheelRadius * dt;
+    float vy = body.velocity.y;
     body.velocity = body.Forward() * speed + body.Right() * lateral;
+    body.velocity.y = vy;
 
     stepGrip(dt);
 
     float preferS = ground.found ? ground.s : -1.0f;
-    ground = track.queryLocal(body.position.x, body.position.z, body.position.y, preferS);
+    Vec3 origin = Origin();
+    ground = track.queryLocal(origin.x, origin.z, origin.y, preferS);
     if (!ground.found) {
         return;
     }
-
-    // 壁との接触は ColliderManager が解決する（TrackCollider と車体の BoxCollider）。
-    float bankLimit = track.halfWidth + track.curbWidth;
-    float bankLat = clampf(ground.lateral, -bankLimit, bankLimit);
-    body.position.y = ground.centerY + bankLat * ground.cross;
+    // 高さは 4 輪のサスペンション、壁との接触は車体の BoxCollider で、どちらも ColliderManager が解く。
     surface = &surfaceAt(track, ground.lateral);
 }
 
@@ -195,15 +242,8 @@ void buildCarShadow(CpuMesh& mesh) {
     mesh.addQuad({-1.05f, 0, -2.1f}, {1.05f, 0, -2.1f}, {1.05f, 0, 2.15f}, {-1.05f, 0, 2.15f}, {0, 1, 0}, ink);
 }
 
-Mat4 carModelMatrix(const Car& car, float pitch, float roll) {
-    Vec3 forward = normalize(Vec3{
-        std::sin(car.body.yaw) * std::cos(pitch),
-        std::sin(pitch),
-        std::cos(car.body.yaw) * std::cos(pitch),
-    });
-    Vec3 right0{std::cos(car.body.yaw), 0, -std::sin(car.body.yaw)};
-    Vec3 up0 = normalize(cross(forward, right0));
-    Vec3 right = normalize(right0 * std::cos(roll) + up0 * std::sin(roll));
-    Vec3 up = normalize(cross(forward, right));
-    return basis({car.body.position.x, car.body.position.y, car.body.position.z}, right, up, forward);
+Mat4 carModelMatrix(const Car& car) {
+    Vec3 right, up, forward;
+    car.body.Axes(right, up, forward);
+    return basis(car.Origin(), right, up, forward);
 }

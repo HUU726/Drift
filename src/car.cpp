@@ -85,7 +85,11 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     steerAngle += clampf(target - steerAngle, -step, step);
     steerAngle = clampf(steerAngle, -0.6f, 0.6f);
 
-    if (std::fabs(speed) < 0.45f && input.brake > 0.5f && input.throttle < 0.1f) {
+    // 止まってブレーキを押し続けると後退に入る。後退に入った後は、速度が出てもブレーキを離すまで後退を続ける。
+    bool holdingBrake = input.brake > 0.5f && input.throttle < 0.1f;
+    bool stopped = std::fabs(speed) < 0.45f;
+    bool backingUp = brakeHold > 0.28f && speed < 0;
+    if (holdingBrake && (stopped || backingUp)) {
         brakeHold += dt;
     } else {
         brakeHold = 0;
@@ -101,6 +105,8 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     } else if (input.throttle > 0.0f && speed > -0.4f) {
         float ratio = clampf(speed / kMaxSpeed, 0.0f, 1.0f);
         force += input.throttle * kAccel * (1.0f - ratio * ratio);
+    } else if (input.throttle > 0.0f) {
+        force += input.throttle * kBrake;  // 後ろへ動いている間のアクセルはブレーキとして効く
     }
     force -= kDrag * speed * std::fabs(speed);
     if (std::fabs(speed) > 0.05f) {

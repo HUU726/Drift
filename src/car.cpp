@@ -46,6 +46,9 @@ Car::Car() {
         wheel.tractionControl = kTractionControl;
         wheel.slipControlShare = kSlipControlShare;
     }
+    airControl.enabled = VehicleSpec::kAirControl;
+    airControl.strength = VehicleSpec::kAirControlStrength;
+    airControl.landingAssist = VehicleSpec::kLandingAssist;
     wheels[kFrontLeft].antiRollPartner = &wheels[kFrontRight];
     wheels[kFrontRight].antiRollPartner = &wheels[kFrontLeft];
     wheels[kRearLeft].antiRollPartner = &wheels[kRearRight];
@@ -80,6 +83,7 @@ void Car::reset(const Track& track) {
     steerAngle = 0;
     brakeHold = 0;
     powertrain->Reset();
+    airControl.Reset();
     ground = track.query(body.position.x, body.position.z, track.spawnY);
 }
 
@@ -154,6 +158,25 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     if (pose.found) {
         ground = pose;
     }
+
+    // 空中姿勢制御。着地補助のために、真下の路面までの高さと路面の傾き（前後と左右）を渡す。
+    bool airborne = Airborne();
+    float groundDistance = 1.0e9f;
+    float targetPitch = 0;
+    float targetRoll = 0;
+    if (airborne && ground.found) {
+        float bankLimit = track.halfWidth + track.curbWidth;
+        float groundY = ground.centerY + clampf(ground.lateral, -bankLimit, bankLimit) * ground.cross;
+        groundDistance = origin.y - groundY;
+        targetRoll = std::atan(ground.cross);
+        Vec3 forward = body.Forward();
+        TrackPose ahead = track.queryLocal(origin.x + forward.x * 2.4f, origin.z + forward.z * 2.4f, groundY, ground.s);
+        TrackPose behind = track.queryLocal(origin.x - forward.x * 2.4f, origin.z - forward.z * 2.4f, groundY, ground.s);
+        if (ahead.found && behind.found) {
+            targetPitch = std::atan2(ahead.centerY - behind.centerY, 4.8f);
+        }
+    }
+    airControl.Update(body, input, airborne, groundDistance, targetPitch, targetRoll, dt);
 }
 
 void buildCarBody(CpuMesh& mesh) {

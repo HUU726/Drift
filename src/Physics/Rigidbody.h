@@ -82,6 +82,14 @@ struct Rigidbody {
         yawTorque_ = 0;
     }
 
+    // 車体の軸まわりのトルク（N·m。yaw は右回り、pitch は鼻先が上がる向き、roll は右側が上がる向きが正）を、
+    // dt のあいだ加える。空中姿勢制御が使う。
+    void AddTorque(float yawTorque, float pitchTorque, float rollTorque, float dt) {
+        yawRate += yawTorque / inertiaYaw * dt;
+        pitchRate += pitchTorque / inertiaPitch * dt;
+        rollRate += rollTorque / inertiaRoll * dt;
+    }
+
     // point に上向きの力積 j（N·s）を加える。上下の速度と pitch / roll が変わる（着地の底突き用）。
     void AddVerticalImpulseAt(float j, Vec3 point) {
         float pitchArm, rollArm;

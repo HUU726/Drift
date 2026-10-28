@@ -2,6 +2,7 @@
 
 #include "Physics/PhysicsMaterial.h"
 #include "Physics/Rigidbody.h"
+#include "Vehicle/AirControl.h"
 #include "Vehicle/Powertrain.h"
 #include "Vehicle/TireModel.h"
 #include "Vehicle/WheelCollider.h"
@@ -52,6 +53,8 @@ struct Car {
     EnginePowertrain engine;
     MotorPowertrain motor;
     IPowertrain* powertrain = &engine;
+    // 空中姿勢制御。設定（有効・無効、強さ、着地補助）はここで変える。
+    AirControl airControl;
 };
 
 void buildCarBody(CpuMesh& mesh);

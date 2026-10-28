@@ -39,4 +39,9 @@ constexpr bool kTractionControl = true;     // 駆動輪が空転しないよう
 constexpr bool kAntiLockBrakes = true;      // ブレーキで車輪がロックしないように回転を保つ
 constexpr float kSlipControlShare = 0.8f;   // 上の 2 つが許すスリップ率（ピークに対する割合）
 
+// 空中姿勢制御（ゲーム用の補助）
+constexpr bool kAirControl = true;
+constexpr float kAirControlStrength = 1.0f;  // 角加速度の上限に掛ける倍率
+constexpr bool kLandingAssist = true;        // 路面が近づいたら車体を路面の傾きへ寄せる
+
 }  // namespace VehicleSpec

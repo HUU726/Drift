@@ -39,6 +39,7 @@ add_executable(racegame
     src/Vehicle/WheelCollider.cpp
     src/Vehicle/TireModel.cpp
     src/Vehicle/Powertrain.cpp
+    src/Vehicle/AirControl.cpp
     src/Scene/Scene.cpp
     src/Scene/RaceScene.cpp
     src/GameObject/TrackObject.cpp

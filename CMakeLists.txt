@@ -31,6 +31,14 @@ add_executable(racegame
     src/car.cpp
     src/System/GlCommon.cpp
     src/System/Input.cpp
+    src/System/SceneManager.cpp
+    src/Scene/Scene.cpp
+    src/Scene/RaceScene.cpp
+    src/GameObject/TrackObject.cpp
+    src/GameObject/CarObject.cpp
+    src/GameObject/RaceTimerObject.cpp
+    src/GameObject/CameraObject.cpp
+    src/GameObject/HudObject.cpp
     src/System/Renderer3D.cpp
     src/System/Renderer2D.cpp
 )

@@ -5,7 +5,6 @@
 #include "SelfTest.h"
 
 #include <SDL_image.h>
-#include <SDL_mixer.h>
 
 #include <cstdio>
 #include <cstring>
@@ -42,15 +41,13 @@ bool App::Init(int argc, char** argv) {
     if (!imageOk_) {
         SDL_Log("IMG_Init failed: %s", IMG_GetError());
     }
-    audioOk_ = Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) == 0;
-    if (!audioOk_) {
-        SDL_Log("Mix_OpenAudio failed: %s", Mix_GetError());
-    }
 
+    // System のマネージャは Renderer3D → Renderer2D → SoundManager → SceneManager の順に初期化し、逆順に解放する。
     if (!initGl()) {
         UnInit();
         return false;
     }
+    sound_.Init();
     input_.Init();
     if (!scenes_.Init<RaceScene>(ctx_)) {
         UnInit();
@@ -169,10 +166,7 @@ void App::UnInit() {
     }
     scenes_.UnInit();
     input_.UnInit();
-    if (audioOk_) {
-        Mix_CloseAudio();
-        Mix_Quit();
-    }
+    sound_.UnInit();
     if (imageOk_) IMG_Quit();
     if (gl_) {
         renderer2d_.UnInit();

@@ -5,6 +5,7 @@
 #include "System/Renderer2D.h"
 #include "System/Renderer3D.h"
 #include "System/SceneManager.h"
+#include "System/SoundManager.h"
 #include "track.hpp"
 
 #include <SDL.h>
@@ -27,15 +28,15 @@ private:
     SDL_GLContext gl_ = nullptr;
     System::Renderer3D renderer3d_;
     System::Renderer2D renderer2d_;
+    System::SoundManager sound_;
     System::Input input_;
     System::SceneManager scenes_;
-    System::Context ctx_{renderer3d_, renderer2d_, scenes_, input_};
+    System::Context ctx_{renderer3d_, renderer2d_, sound_, scenes_, input_};
 
     Track selfTestTrack_;  // --self-test のときだけ使う
     bool selfTest_ = false;
     bool sdlOk_ = false;
     bool imageOk_ = false;
-    bool audioOk_ = false;
     bool running_ = true;
     double accumulator_ = 0;
     Uint64 prevCounter_ = 0;

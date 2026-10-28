@@ -25,6 +25,8 @@ message(STATUS "CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
 
 add_executable(racegame
     src/main.cpp
+    src/Application.cpp
+    src/SelfTest.cpp
     src/track.cpp
     src/car.cpp
     src/System/GlCommon.cpp

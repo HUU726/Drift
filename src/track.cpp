@@ -240,6 +240,60 @@ void addGround(CpuMesh& mesh, const Track& track) {
     mesh.addQuad(a, d, c, b, {0, 1, 0}, color);
 }
 
+// 区間 i（samples[i] から次の点まで）の傾き（高さの変化 / 水平の距離）。
+float slopeOf(const std::vector<TrackSample>& samples, int i) {
+    const int n = static_cast<int>(samples.size());
+    const TrackSample& a = samples[i];
+    const TrackSample& b = samples[(i + 1) % n];
+    float run = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z));
+    return run > 1e-4f ? (b.y - a.y) / run : 0.0f;
+}
+
+// 標高データの誤りを直す。
+// 1. 傾きが kPitSlope を超える区間（実際のコースにはない深さ 4〜6 m の穴）を、前後の緩やかな点を結ぶ直線で埋める。
+//    立体交差の橋の上は対象外。
+// 2. 高さを前後の点と [1 2 1] / 4 で kSmoothPasses 回混ぜ、点ごとの傾きの折れ目を丸める。
+//    折れ目が鋭いと、サスペンションで走る車が低い速度で浮き上がる。
+void repairElevation(std::vector<TrackSample>& samples) {
+    constexpr float kPitSlope = 0.12f;
+    constexpr float kGentleSlope = 0.05f;
+    constexpr int kSmoothPasses = 4;
+    const int n = static_cast<int>(samples.size());
+    for (int i = 0; i < n; ++i) {
+        if (samples[i].bridge || std::fabs(slopeOf(samples, i)) <= kPitSlope) {
+            continue;
+        }
+        // 穴の前後で、傾きが緩やかになる点まで広げる。
+        int first = i;
+        int last = i;
+        for (int guard = 0; guard < n && std::fabs(slopeOf(samples, (first + n - 1) % n)) > kGentleSlope; ++guard) {
+            first = (first + n - 1) % n;
+        }
+        for (int guard = 0; guard < n && std::fabs(slopeOf(samples, last)) > kGentleSlope; ++guard) {
+            last = (last + 1) % n;
+        }
+        last = (last + 1) % n;
+        int span = (last - first + n) % n;
+        float y0 = samples[first].y;
+        float y1 = samples[last].y;
+        for (int k = 1; k < span; ++k) {
+            samples[(first + k) % n].y = y0 + (y1 - y0) * float(k) / float(span);
+        }
+        if (last <= i) {
+            break;  // 1 周の終わりをまたいだ
+        }
+        i = last;
+    }
+    std::vector<float> smoothed(n);
+    for (int pass = 0; pass < kSmoothPasses; ++pass) {
+        for (int i = 0; i < n; ++i) {
+            smoothed[i] = 0.25f * samples[(i + n - 1) % n].y + 0.5f * samples[i].y + 0.25f * samples[(i + 1) % n].y;
+        }
+        for (int i = 0; i < n; ++i) {
+            samples[i].y = smoothed[i];
+        }
+    }
+}
 }  // namespace
 
 bool Track::load(const std::string& path) {
@@ -328,6 +382,7 @@ bool Track::load(const std::string& path) {
     if (samples.size() < 16) {
         return false;
     }
+    repairElevation(samples);
 
     length = 0;
     for (size_t i = 0; i < samples.size(); ++i) {
@@ -335,6 +390,11 @@ bool Track::load(const std::string& path) {
         const TrackSample& a = samples[i];
         const TrackSample& b = samples[(i + 1) % samples.size()];
         length += std::sqrt((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z));
+    }
+    // 高さを直したので、スポーン地点の高さも路面に合わせる。
+    TrackPose spawnPose = query(spawnX, spawnZ, spawnY);
+    if (spawnPose.found) {
+        spawnY = spawnPose.centerY + spawnPose.lateral * spawnPose.cross;
     }
 
     visual = CpuMesh{};

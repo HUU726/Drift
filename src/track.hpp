@@ -49,6 +49,10 @@ struct Track {
     bool load(const std::string& path);
     // preferS が 0 以上のときは、その周回位置に近い路面を優先する。立体交差で上下を取り違えない。
     TrackPose query(float x, float z, float yHint, float preferS = -1.0f) const;
+    // preferS の前後 kLocalWindow（m）の区間だけを調べる。1 ステップに何度も呼ぶ物理用。
+    // preferS が負のとき、範囲内に路面がないとき、遠すぎるときは query（全区間）に切り替える。
+    TrackPose queryLocal(float x, float z, float yHint, float preferS) const;
+    static constexpr float kLocalWindow = 50.0f;
     float wallLateral() const { return halfWidth + curbWidth + runoff; }
     const char* nameOf(int nameId) const;
 };

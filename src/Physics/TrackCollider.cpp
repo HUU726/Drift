@@ -12,7 +12,7 @@ bool TrackCollider::CollideBox(BoxCollider& box, Contact& out) {
     const Vec3& center = box.body->position;
     auto hint = lastS_.find(&box);
     float preferS = hint != lastS_.end() ? hint->second : -1.0f;
-    TrackPose pose = track_.query(center.x, center.z, center.y, preferS);
+    TrackPose pose = track_.queryLocal(center.x, center.z, center.y, preferS);
     if (!pose.found) {
         return false;
     }

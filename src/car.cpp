@@ -132,7 +132,7 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     stepGrip(dt);
 
     float preferS = ground.found ? ground.s : -1.0f;
-    ground = track.query(body.position.x, body.position.z, body.position.y, preferS);
+    ground = track.queryLocal(body.position.x, body.position.z, body.position.y, preferS);
     if (!ground.found) {
         return;
     }

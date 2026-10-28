@@ -146,6 +146,81 @@ int wallTest(const Track& track) {
     return 0;
 }
 
+// 2 つの周回位置の差（m）。1 周をまたぐ分を考える。
+float sGap(const Track& track, float a, float b) {
+    float gap = std::fabs(a - b);
+    return std::min(gap, track.length - gap);
+}
+
+// queryLocal が、全区間を調べる query と同じ区間を返すことを確かめる。
+// コース上の全サンプル点で、横位置を左右の壁まで変えて比べる。立体交差では上下両方の路面で比べる。
+int queryTest(const Track& track) {
+    const int n = static_cast<int>(track.samples.size());
+    int checked = 0;
+    int mismatchRoad = 0;    // 路面と縁石の上（|横位置| が halfWidth + curbWidth 以内）
+    int mismatchRunoff = 0;  // 芝の上
+    float maxRoadGap = 0;
+    for (int i = 0; i < n; ++i) {
+        const TrackSample& a = track.samples[i];
+        const TrackSample& b = track.samples[(i + 1) % n];
+        float tx = b.x - a.x;
+        float tz = b.z - a.z;
+        float len = std::sqrt(tx * tx + tz * tz);
+        if (len < 1e-4f) {
+            continue;
+        }
+        Vec3 right{tz / len, 0, -tx / len};
+        for (float lateral = -15.0f; lateral <= 15.01f; lateral += 2.5f) {
+            float x = a.x + right.x * lateral;
+            float z = a.z + right.z * lateral;
+            TrackPose full = track.query(x, z, a.y, a.s);
+            TrackPose local = track.queryLocal(x, z, a.y, a.s);
+            ++checked;
+            float gap = sGap(track, full.s, local.s);
+            if (gap > 0.01f) {
+                if (std::fabs(lateral) <= track.halfWidth + track.curbWidth) {
+                    ++mismatchRoad;
+                    maxRoadGap = std::max(maxRoadGap, gap);
+                } else {
+                    ++mismatchRunoff;
+                }
+            }
+        }
+    }
+
+    // 立体交差: 上の路面の点と、ほぼ同じ平面位置にある下の路面の点の組を探し、それぞれの高さで調べる。
+    int crossings = 0;
+    int wrongLevel = 0;
+    for (int i = 0; i < n; ++i) {
+        const TrackSample& upper = track.samples[i];
+        if (!upper.bridge) {
+            continue;
+        }
+        for (int j = 0; j < n; ++j) {
+            const TrackSample& lower = track.samples[j];
+            float dx = upper.x - lower.x;
+            float dz = upper.z - lower.z;
+            if (dx * dx + dz * dz > 4.0f * 4.0f || sGap(track, upper.s, lower.s) < 200.0f || upper.y - lower.y < 3.0f) {
+                continue;
+            }
+            ++crossings;
+            const TrackSample* levels[2] = {&upper, &lower};
+            for (const TrackSample* level : levels) {
+                TrackPose full = track.query(upper.x, upper.z, level->y, level->s);
+                TrackPose local = track.queryLocal(upper.x, upper.z, level->y, level->s);
+                if (sGap(track, full.s, level->s) > 10.0f || sGap(track, local.s, level->s) > 10.0f) {
+                    ++wrongLevel;
+                }
+            }
+        }
+    }
+    std::printf("self-test query checked %d mismatch road %d (max %.2f m) runoff %d, crossings %d wrongLevel %d\n",
+                checked, mismatchRoad, maxRoadGap, mismatchRunoff, crossings, wrongLevel);
+    if (mismatchRoad > 0) return 6;
+    if (crossings == 0 || wrongLevel > 0) return 7;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -153,5 +228,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return wallTest(track);
+    result = wallTest(track);
+    if (result != 0) {
+        return result;
+    }
+    return queryTest(track);
 }

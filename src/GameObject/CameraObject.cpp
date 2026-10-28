@@ -30,7 +30,7 @@ void CameraObject::LateUpdate(float dt) {
     Vec3 forward{std::sin(car.body.yaw), 0, std::cos(car.body.yaw)};
     Vec3 eye = Vec3{car.body.position.x, car.body.position.y, car.body.position.z} - forward * back[mode_] + Vec3{0, up[mode_], 0};
     Vec3 look = Vec3{car.body.position.x, car.body.position.y, car.body.position.z} + forward * ahead[mode_] + Vec3{0, 1.15f, 0};
-    TrackPose under = track_->GetTrack().query(eye.x, eye.z, car.body.position.y, car.ground.s);
+    TrackPose under = track_->GetTrack().queryLocal(eye.x, eye.z, car.body.position.y, car.ground.s);
     if (under.found && under.xzDist < 30.0f && eye.y < under.centerY + 0.8f) {
         eye.y = under.centerY + 0.8f;
     }

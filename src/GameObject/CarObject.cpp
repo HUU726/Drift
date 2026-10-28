@@ -48,8 +48,8 @@ void CarObject::LateUpdate(float dt) {
 float CarObject::computePitch() const {
     Vec3 forward{std::sin(car_.body.yaw), 0, std::cos(car_.body.yaw)};
     float preferS = car_.ground.found ? car_.ground.s : -1.0f;
-    TrackPose ahead = track_->query(car_.body.position.x + forward.x * 2.4f, car_.body.position.z + forward.z * 2.4f, car_.body.position.y, preferS);
-    TrackPose behind = track_->query(car_.body.position.x - forward.x * 2.4f, car_.body.position.z - forward.z * 2.4f, car_.body.position.y, preferS);
+    TrackPose ahead = track_->queryLocal(car_.body.position.x + forward.x * 2.4f, car_.body.position.z + forward.z * 2.4f, car_.body.position.y, preferS);
+    TrackPose behind = track_->queryLocal(car_.body.position.x - forward.x * 2.4f, car_.body.position.z - forward.z * 2.4f, car_.body.position.y, preferS);
     if (!ahead.found || !behind.found) {
         return 0;
     }

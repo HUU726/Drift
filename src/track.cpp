@@ -351,59 +351,106 @@ bool Track::load(const std::string& path) {
     return true;
 }
 
+namespace {
+
+// 区間 i（samples[i] から次の点まで）が (x, z, yHint) にいちばん近い路面なら、best を書き換える。
+void considerSegment(const Track& track, int i, float x, float z, float yHint, float preferS,
+                     float& bestScore, TrackPose& best) {
+    const int n = static_cast<int>(track.samples.size());
+    const TrackSample& a = track.samples[i];
+    const TrackSample& b = track.samples[(i + 1) % n];
+    float abx = b.x - a.x;
+    float abz = b.z - a.z;
+    float len2 = abx * abx + abz * abz;
+    if (len2 < 1e-4f) {
+        return;
+    }
+    float t = ((x - a.x) * abx + (z - a.z) * abz) / len2;
+    t = clampf(t, 0.0f, 1.0f);
+    float cx = a.x + abx * t;
+    float cz = a.z + abz * t;
+    float cy = a.y + (b.y - a.y) * t;
+    float dx = x - cx;
+    float dz = z - cz;
+    float dy = yHint - cy;
+    // 立体交差では平面距離より高さを優先する。6m 差なら、壁際にいても下の路面へ落ちない。
+    float score = dx * dx + dz * dz + dy * dy * 12.0f;
+    if (preferS >= 0.0f && track.length > 1.0f) {
+        float along = a.s + std::sqrt(len2) * t;
+        float ds = std::fabs(along - preferS);
+        if (ds > track.length * 0.5f) {
+            ds = track.length - ds;
+        }
+        // 今走っている周回位置から遠い路面は、交差の真下でも選ばない。
+        score += ds * 0.2f;
+    }
+    if (score >= bestScore) {
+        return;
+    }
+    bestScore = score;
+    float invLen = 1.0f / std::sqrt(len2);
+    float tx = abx * invLen;
+    float tz = abz * invLen;
+    best.found = true;
+    best.s = a.s + std::sqrt(len2) * t;
+    if (best.s >= track.length) {
+        best.s -= track.length;
+    }
+    best.rightX = tz;
+    best.rightZ = -tx;
+    best.lateral = dx * best.rightX + dz * best.rightZ;
+    best.centerY = cy;
+    best.cross = a.cross + (b.cross - a.cross) * t;
+    best.yaw = std::atan2(tx, tz);
+    best.xzDist = std::sqrt(dx * dx + dz * dz);
+    best.corner = t < 0.5f ? a.corner : b.corner;
+    best.nameId = t < 0.5f ? a.nameId : b.nameId;
+}
+
+}  // namespace
+
 TrackPose Track::query(float x, float z, float yHint, float preferS) const {
     TrackPose best;
     float bestScore = 1.0e30f;
     const int n = static_cast<int>(samples.size());
     for (int i = 0; i < n; ++i) {
-        const TrackSample& a = samples[i];
-        const TrackSample& b = samples[(i + 1) % n];
-        float abx = b.x - a.x;
-        float abz = b.z - a.z;
-        float len2 = abx * abx + abz * abz;
-        if (len2 < 1e-4f) {
-            continue;
+        considerSegment(*this, i, x, z, yHint, preferS, bestScore, best);
+    }
+    return best;
+}
+
+TrackPose Track::queryLocal(float x, float z, float yHint, float preferS) const {
+    const int n = static_cast<int>(samples.size());
+    if (preferS < 0.0f || n < 2 || length <= 2.0f * kLocalWindow) {
+        return query(x, z, yHint, preferS);
+    }
+    // preferS - kLocalWindow を含む区間から、2 * kLocalWindow 先までを調べる。
+    float startS = preferS - kLocalWindow;
+    if (startS < 0.0f) {
+        startS += length;
+    }
+    auto it = std::upper_bound(samples.begin(), samples.end(), startS,
+                               [](float s, const TrackSample& sample) { return s < sample.s; });
+    int start = static_cast<int>(it - samples.begin()) - 1;
+    if (start < 0) {
+        start = n - 1;
+    }
+    TrackPose best;
+    float bestScore = 1.0e30f;
+    for (int k = 0; k < n; ++k) {
+        int i = (start + k) % n;
+        float along = samples[i].s - samples[start].s;
+        if (along < 0.0f) {
+            along += length;
         }
-        float t = ((x - a.x) * abx + (z - a.z) * abz) / len2;
-        t = clampf(t, 0.0f, 1.0f);
-        float cx = a.x + abx * t;
-        float cz = a.z + abz * t;
-        float cy = a.y + (b.y - a.y) * t;
-        float dx = x - cx;
-        float dz = z - cz;
-        float dy = yHint - cy;
-        // 立体交差では平面距離より高さを優先する。6m 差なら、壁際にいても下の路面へ落ちない。
-        float score = dx * dx + dz * dz + dy * dy * 12.0f;
-        if (preferS >= 0.0f && length > 1.0f) {
-            float along = a.s + std::sqrt(len2) * t;
-            float ds = std::fabs(along - preferS);
-            if (ds > length * 0.5f) {
-                ds = length - ds;
-            }
-            // 今走っている周回位置から遠い路面は、交差の真下でも選ばない。
-            score += ds * 0.2f;
+        if (k > 0 && along > 2.0f * kLocalWindow) {
+            break;
         }
-        if (score >= bestScore) {
-            continue;
-        }
-        bestScore = score;
-        float invLen = 1.0f / std::sqrt(len2);
-        float tx = abx * invLen;
-        float tz = abz * invLen;
-        best.found = true;
-        best.s = a.s + std::sqrt(len2) * t;
-        if (best.s >= length) {
-            best.s -= length;
-        }
-        best.rightX = tz;
-        best.rightZ = -tx;
-        best.lateral = dx * best.rightX + dz * best.rightZ;
-        best.centerY = cy;
-        best.cross = a.cross + (b.cross - a.cross) * t;
-        best.yaw = std::atan2(tx, tz);
-        best.xzDist = std::sqrt(dx * dx + dz * dz);
-        best.corner = t < 0.5f ? a.corner : b.corner;
-        best.nameId = t < 0.5f ? a.nameId : b.nameId;
+        considerSegment(*this, i, x, z, yHint, preferS, bestScore, best);
+    }
+    // 範囲の中に路面が見つからない、または遠すぎるとき（リセット直後や大きく飛ばされたとき）は全区間を調べる。
+    if (!best.found || best.xzDist > wallLateral() * 2.0f) {
+        return query(x, z, yHint, preferS);
     }
     return best;
 }

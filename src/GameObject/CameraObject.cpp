@@ -1,8 +1,8 @@
 #include "GameObject/CameraObject.h"
 
 #include "GameObject/CarObject.h"
-#include "GameObject/TrackObject.h"
 #include "Scene/Scene.h"
+#include "System/ColliderManager.h"
 #include "System/Context.h"
 #include "System/Input.h"
 #include "System/Renderer3D.h"
@@ -11,8 +11,7 @@
 
 bool CameraObject::Init() {
     car_ = scene_.Find<CarObject>();
-    track_ = scene_.Find<TrackObject>();
-    return car_ && track_;
+    return car_ != nullptr;
 }
 
 void CameraObject::StartUpdate(float dt) {
@@ -31,9 +30,10 @@ void CameraObject::LateUpdate(float dt) {
     Vec3 origin = car.Origin();
     Vec3 eye = origin - forward * back[mode_] + Vec3{0, up[mode_], 0};
     Vec3 look = origin + forward * ahead[mode_] + Vec3{0, 1.15f, 0};
-    TrackPose under = track_->GetTrack().queryLocal(eye.x, eye.z, origin.y, car.ground.s);
-    if (under.found && under.xzDist < 30.0f && eye.y < under.centerY + 0.8f) {
-        eye.y = under.centerY + 0.8f;
+    // カメラが路面に潜らないように、真下の路面より 0.8 m 上に保つ。立体交差では車のいる高さの路面を選ぶ。
+    RaycastHit under = scene_.Ctx().physics.GroundAt(eye.x, eye.z, origin.y + 2.0f, car.ground.found ? car.ground.s : -1.0f);
+    if (under.hit && eye.y < under.point.y + 0.8f) {
+        eye.y = under.point.y + 0.8f;
     }
     if (!ready_) {
         eye_ = eye;

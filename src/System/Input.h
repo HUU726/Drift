@@ -12,6 +12,7 @@ enum class Action {
     Pause,
     Camera,
     Help,
+    SwitchScene,  // レースと試験コースを切り替える
     Count,
 };
 

@@ -5,6 +5,7 @@
 #include "Physics/RampCollider.h"
 #include "Physics/TrackCollider.h"
 #include "System/ColliderManager.h"
+#include "TestCourse.h"
 #include "Vehicle/Powertrain.h"
 #include "Vehicle/VehicleSpec.h"
 #include "car.hpp"
@@ -22,6 +23,9 @@ constexpr float kStep = 1.0f / 60.0f;
 struct Rig {
     explicit Rig(const Track& track) : wall(track) {
         car.reset(track);
+        car.groundProbe = [this](float x, float z, float yHint, float preferS) {
+            return physics.GroundAt(x, z, yHint, preferS);
+        };
         box.body = &car.body;
         physics.Init();
         physics.Register(&wall);
@@ -34,7 +38,7 @@ struct Rig {
     ~Rig() { physics.UnInit(); }
 
     void Step(const DriveInput& input, const Track& track) {
-        car.update(kStep, input, track);
+        car.update(kStep, input, &track);
         physics.Step(kStep);
     }
 
@@ -445,6 +449,114 @@ int powertrainTest() {
     return 0;
 }
 
+// 試験コース（TestScene と同じ配置）で車を動かす。コースがないので、車の下の路面は ColliderManager だけで調べる。
+struct CourseRig {
+    CourseRig() {
+        course.Build();
+        physics.Init();
+        physics.Register(&course.ground);
+        for (auto& ramp : course.ramps) {
+            physics.Register(ramp.get());
+        }
+        physics.Register(&car.body);
+        for (WheelCollider& w : car.wheels) {
+            physics.Register(&w);
+        }
+        box.body = &car.body;
+        physics.Register(&box);
+        car.groundProbe = [this](float x, float z, float yHint, float preferS) {
+            return physics.GroundAt(x, z, yHint, preferS);
+        };
+        car.Place(course.spawn, course.spawnYaw);
+    }
+    ~CourseRig() { physics.UnInit(); }
+
+    void Step(const DriveInput& input) {
+        car.update(kStep, input, nullptr);
+        physics.Step(kStep);
+    }
+    // 原点を (x, 0, z) に、+z 向きに、前向きの速度 speed で置く。
+    void Launch(float x, float z, float speed) {
+        car.Place(Vec3{x, course.ground.height, z}, 0.0f);
+        car.body.velocity = car.body.Forward() * speed;
+        for (WheelCollider& w : car.wheels) {
+            w.omega = speed / w.radius;
+        }
+    }
+
+    TestCourse course;
+    Car car;
+    BoxCollider box;
+    System::ColliderManager physics;
+};
+
+// 試験コースの直線で 100 km/h まで加速してから、後退に入らない強さ（0.45）でブレーキを掛け、止まるまでの距離（m）。
+float brakingDistance(float x) {
+    CourseRig rig;
+    rig.car.Place(Vec3{x, 0, -50}, 0.0f);
+    DriveInput full;
+    full.throttle = 1;
+    for (int step = 0; step < 60 * 20 && rig.car.ForwardSpeed() < 100.0f / 3.6f; ++step) {
+        rig.Step(full);
+    }
+    Vec3 start = rig.car.body.position;
+    DriveInput brake;
+    brake.brake = 0.45f;
+    for (int step = 0; step < 60 * 10 && rig.car.ForwardSpeed() > 0.3f; ++step) {
+        rig.Step(brake);
+    }
+    Vec3 d = rig.car.body.position - start;
+    return std::sqrt(d.x * d.x + d.z * d.z);
+}
+
+// 試験コースで、平面に置いた車の落ち着き、アスファルトとダートのブレーキの距離、4 台のジャンプ台を確かめる。
+int testCourseTest() {
+    {
+        CourseRig rig;
+        DriveInput none;
+        for (int step = 0; step < 60; ++step) {
+            rig.Step(none);
+        }
+        float height = rig.car.Origin().y - rig.course.ground.height;
+        std::printf("self-test course settle vy %.4f m/s height %.4f m\n", rig.car.body.velocity.y, height);
+        if (std::fabs(rig.car.body.velocity.y) >= 0.01f || std::fabs(height) > 0.01f) return 18;
+    }
+
+    float asphalt = brakingDistance(0.0f);
+    float dirt = brakingDistance(130.0f);
+    std::printf("self-test course 100-0 km/h asphalt %.1f m dirt %.1f m\n", asphalt, dirt);
+    if (asphalt <= 0 || dirt < asphalt * 1.2f) return 19;
+
+    // 各台の 30 m 手前から 25 m/s で入る。浮いた後に着地し、ブレーキで止めたときに姿勢と車高が戻ること。
+    for (const TestCourse::RampPlace& place : TestCourse::kRamps) {
+        CourseRig rig;
+        rig.Launch(place.x, TestCourse::kRampZ - 30.0f, 25.0f);
+        float maxAir = 0;
+        float maxHeight = 0;
+        for (int step = 0; step < 60 * 8; ++step) {
+            DriveInput input;
+            input.brake = step >= 60 * 4 ? 0.4f : 0.0f;
+            rig.Step(input);
+            maxAir = std::max(maxAir, rig.car.airControl.AirTime());
+            maxHeight = std::max(maxHeight, rig.car.Origin().y);
+            const Rigidbody& body = rig.car.body;
+            if (!std::isfinite(body.position.y) || !std::isfinite(body.pitch) || !std::isfinite(body.roll)) {
+                std::printf("self-test course ramp %.0f deg non-finite\n", place.angleDeg);
+                return 1;
+            }
+        }
+        const Rigidbody& body = rig.car.body;
+        float height = rig.car.Origin().y - rig.course.ground.height;
+        std::printf("self-test course ramp %2.0f deg airtime %.2f s top %.2f m, end speed %.1f km/h pitch %.3f roll %.3f height %.3f\n",
+                    place.angleDeg, maxAir, maxHeight, rig.car.ForwardSpeed() * 3.6f, body.pitch, body.roll, height);
+        if (maxAir <= 0.1f) return 20;
+        if (rig.car.Airborne() || std::fabs(body.pitch) > 0.2f || std::fabs(body.roll) > 0.2f || std::fabs(height) > 0.05f) {
+            return 21;
+        }
+    }
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -472,5 +584,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return powertrainTest();
+    result = powertrainTest();
+    if (result != 0) {
+        return result;
+    }
+    return testCourseTest();
 }

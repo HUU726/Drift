@@ -64,6 +64,7 @@ void Input::OnEvent(const SDL_Event& event) {
         else if (code == SDL_SCANCODE_C) press(Action::Camera);
         else if (code == SDL_SCANCODE_P) press(Action::Pause);
         else if (code == SDL_SCANCODE_H) press(Action::Help);
+        else if (code == SDL_SCANCODE_T) press(Action::SwitchScene);
     } else if (event.type == SDL_CONTROLLERDEVICEADDED) {
         openPad();
     } else if (event.type == SDL_CONTROLLERDEVICEREMOVED && pad_ &&

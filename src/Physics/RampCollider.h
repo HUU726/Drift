@@ -23,6 +23,9 @@ struct RampSpec {
 class RampCollider : public Collider {
 public:
     RampCollider(const Track& track, const RampSpec& spec);
+    // コースに依らず、ワールドの位置に置く。origin は手前の端の中心（y は地面の高さ）、yaw は向き。
+    // spec の s と lateral は使わない。
+    RampCollider(Vec3 origin, float yaw, const RampSpec& spec);
 
     // (x, z) の真下の上面。台の外、または上面が yHint より上（台の下からのレイ）なら当たらない。
     RaycastHit GroundAt(float x, float z, float yHint) const;
@@ -46,4 +49,5 @@ private:
     Vec3 right_;
     float y0_ = 0;  // 手前の端の路面の高さ
     float y1_ = 0;  // 奥の端の路面の高さ
+    bool onTrack_ = true;  // コースの上に置いたか（GroundAt で周回位置を返すか）
 };

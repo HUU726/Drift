@@ -9,6 +9,8 @@
 #include "meshbuild.hpp"
 #include "track.hpp"
 
+#include <functional>
+
 struct DriveInput {
     float throttle = 0;  // 0..1
     float brake = 0;     // 0..1  停止中は後退
@@ -27,11 +29,19 @@ struct Car {
     WheelCollider wheels[kWheelCount];
     float steerAngle = 0;   // 前輪の切れ角（ラジアン、右が正）
     float brakeHold = 0;    // 止まってから後退に入るまでの待ち時間
-    TrackPose ground;       // 車の下のコース（周回位置、横位置）。ラップ計測と HUD が読む
+    TrackPose ground;       // 車の下のコース（周回位置、横位置）。ラップ計測と HUD が読む。コースがなければ found = false
 
+    // 真下の路面を調べる関数（x, z, レイの始点の高さ, 直前の周回位置）。空中姿勢制御の着地補助が使う。
+    // CarObject と self-test が ColliderManager::GroundAt を渡す。なければ着地補助は効かない。
+    std::function<RaycastHit(float, float, float, float)> groundProbe;
+
+    // コースのスポーン地点に置き直す。
     void reset(const Track& track);
+    // 原点（車体の真下の地面）を origin に、向きを yaw にして、止まった状態で置き直す。
+    void Place(Vec3 origin, float yaw);
     // 入力から前輪の切れ角と、各輪の駆動・ブレーキのトルクを決める。車を動かすのは ColliderManager。
-    void update(float dt, const DriveInput& input, const Track& track);
+    // track があれば、車の下のコースの位置（ground）も求める。
+    void update(float dt, const DriveInput& input, const Track* track);
     // 後輪をドリフト用のタイヤにする（false でグリップ用に戻す）。前輪はグリップ用のまま。
     void UseDriftTires(bool drift);
     // 駆動をモーターにする（false でエンジンに戻す）。

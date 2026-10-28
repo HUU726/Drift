@@ -4,7 +4,6 @@
 #include "geom.hpp"
 
 class CarObject;
-class TrackObject;
 
 // 車を追うカメラ。C で 3 つの距離を切り替える。
 class CameraObject : public GameObject {
@@ -22,7 +21,6 @@ public:
 
 private:
     const CarObject* car_ = nullptr;
-    const TrackObject* track_ = nullptr;
     Vec3 eye_{0, 8, -12};
     Vec3 look_{0, 0, 0};
     bool ready_ = false;

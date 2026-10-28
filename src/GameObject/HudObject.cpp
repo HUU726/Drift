@@ -139,7 +139,7 @@ void HudObject::Draw2D(System::Renderer2D& hud) {
 
     if (showHelp_) {
         hud.DrawText(24, float(hud.Height()) - 78, 1.7f,
-                     "W/UP ACCEL  S/DOWN BRAKE  A/D STEER  R RESET  C CAMERA  P PAUSE",
+                     "W/UP ACCEL  S/DOWN BRAKE  A/D STEER  R RESET  C CAMERA  P PAUSE  T TEST",
                      0.9f, 0.92f, 0.94f, 1);
         hud.DrawText(24, float(hud.Height()) - 54, 1.7f,
                      "PAD: RT ACCEL  LT BRAKE  STICK STEER  Y CAMERA  BACK RESET  START PAUSE",

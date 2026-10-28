@@ -6,8 +6,10 @@
 #include "GameObject/RaceTimerObject.h"
 #include "GameObject/RampObject.h"
 #include "GameObject/TrackObject.h"
+#include "Scene/TestScene.h"
 #include "System/Context.h"
 #include "System/Input.h"
+#include "System/SceneManager.h"
 
 bool RaceScene::Init() {
     Add<TrackObject>();
@@ -29,6 +31,9 @@ void RaceScene::OnStartUpdate(float dt) {
     }
     if (input.Pressed(System::Action::Pause)) {
         paused_ = !paused_;
+    }
+    if (input.Pressed(System::Action::SwitchScene)) {
+        Ctx().scenes.Change<TestScene>();
     }
 }
 

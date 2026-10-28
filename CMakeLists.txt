@@ -27,6 +27,7 @@ add_executable(racegame
     src/main.cpp
     src/Application.cpp
     src/SelfTest.cpp
+    src/TestCourse.cpp
     src/track.cpp
     src/car.cpp
     src/System/GlCommon.cpp
@@ -36,18 +37,22 @@ add_executable(racegame
     src/System/ColliderManager.cpp
     src/Physics/TrackCollider.cpp
     src/Physics/RampCollider.cpp
+    src/Physics/PlaneCollider.cpp
     src/Vehicle/WheelCollider.cpp
     src/Vehicle/TireModel.cpp
     src/Vehicle/Powertrain.cpp
     src/Vehicle/AirControl.cpp
     src/Scene/Scene.cpp
     src/Scene/RaceScene.cpp
+    src/Scene/TestScene.cpp
     src/GameObject/TrackObject.cpp
     src/GameObject/RampObject.cpp
     src/GameObject/CarObject.cpp
     src/GameObject/RaceTimerObject.cpp
     src/GameObject/CameraObject.cpp
     src/GameObject/HudObject.cpp
+    src/GameObject/TestGroundObject.cpp
+    src/GameObject/TelemetryHudObject.cpp
     src/System/Renderer3D.cpp
     src/System/Renderer2D.cpp
 )

@@ -67,9 +67,14 @@ void Car::UseMotor(bool useMotor) {
 }
 
 void Car::reset(const Track& track) {
+    Place(Vec3{track.spawnX, track.spawnY, track.spawnZ}, track.spawnYaw);
+    ground = track.query(track.spawnX, track.spawnZ, track.spawnY);
+}
+
+void Car::Place(Vec3 origin, float yaw) {
     body = Rigidbody{};
-    body.position = {track.spawnX, track.spawnY, track.spawnZ};
-    body.yaw = track.spawnYaw;
+    body.position = origin;
+    body.yaw = yaw;
     body.mass = VehicleSpec::kMass;
     body.inertiaYaw = VehicleSpec::kInertiaYaw;
     body.inertiaPitch = VehicleSpec::kInertiaPitch;
@@ -84,7 +89,7 @@ void Car::reset(const Track& track) {
     brakeHold = 0;
     powertrain->Reset();
     airControl.Reset();
-    ground = track.query(body.position.x, body.position.z, track.spawnY);
+    ground = TrackPose{};
 }
 
 bool Car::Airborne() const {
@@ -105,7 +110,7 @@ Vec3 Car::WheelCenter(int wheel) const {
     return Vec3{w.mount.x, w.mount.y + VehicleSpec::kCenterOfMassY - w.length, w.mount.z};
 }
 
-void Car::update(float dt, const DriveInput& input, const Track& track) {
+void Car::update(float dt, const DriveInput& input, const Track* track) {
     float speed = body.ForwardSpeed();
     float target = clampf(input.steer, -1.0f, 1.0f) * maxSteerAt(speed);
     float step = kSteerRate * dt;
@@ -154,26 +159,36 @@ void Car::update(float dt, const DriveInput& input, const Track& track) {
     // 車の下のコース。周回位置と横位置を、ラップ計測と HUD のために持っておく。
     float preferS = ground.found ? ground.s : -1.0f;
     Vec3 origin = Origin();
-    TrackPose pose = track.queryLocal(origin.x, origin.z, origin.y, preferS);
-    if (pose.found) {
-        ground = pose;
+    if (track) {
+        TrackPose pose = track->queryLocal(origin.x, origin.z, origin.y, preferS);
+        if (pose.found) {
+            ground = pose;
+        }
     }
 
     // 空中姿勢制御。着地補助のために、真下の路面までの高さと路面の傾き（前後と左右）を渡す。
+    // 傾きは、原点の前後 2.4 m と左右 1 m の路面の高さの差から求める。
     bool airborne = Airborne();
     float groundDistance = 1.0e9f;
     float targetPitch = 0;
     float targetRoll = 0;
-    if (airborne && ground.found) {
-        float bankLimit = track.halfWidth + track.curbWidth;
-        float groundY = ground.centerY + clampf(ground.lateral, -bankLimit, bankLimit) * ground.cross;
-        groundDistance = origin.y - groundY;
-        targetRoll = std::atan(ground.cross);
-        Vec3 forward = body.Forward();
-        TrackPose ahead = track.queryLocal(origin.x + forward.x * 2.4f, origin.z + forward.z * 2.4f, groundY, ground.s);
-        TrackPose behind = track.queryLocal(origin.x - forward.x * 2.4f, origin.z - forward.z * 2.4f, groundY, ground.s);
-        if (ahead.found && behind.found) {
-            targetPitch = std::atan2(ahead.centerY - behind.centerY, 4.8f);
+    if (airborne && groundProbe) {
+        RaycastHit under = groundProbe(origin.x, origin.z, origin.y, preferS);
+        if (under.hit) {
+            groundDistance = origin.y - under.point.y;
+            Vec3 forward = body.Forward();
+            Vec3 right = body.Right();
+            float probeY = origin.y;
+            RaycastHit ahead = groundProbe(origin.x + forward.x * 2.4f, origin.z + forward.z * 2.4f, probeY, preferS);
+            RaycastHit behind = groundProbe(origin.x - forward.x * 2.4f, origin.z - forward.z * 2.4f, probeY, preferS);
+            RaycastHit toRight = groundProbe(origin.x + right.x, origin.z + right.z, probeY, preferS);
+            RaycastHit toLeft = groundProbe(origin.x - right.x, origin.z - right.z, probeY, preferS);
+            if (ahead.hit && behind.hit) {
+                targetPitch = std::atan2(ahead.point.y - behind.point.y, 4.8f);
+            }
+            if (toRight.hit && toLeft.hit) {
+                targetRoll = std::atan2(toRight.point.y - toLeft.point.y, 2.0f);
+            }
         }
     }
     airControl.Update(body, input, airborne, groundDistance, targetPitch, targetRoll, dt);

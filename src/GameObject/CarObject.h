@@ -17,10 +17,17 @@ public:
 
     // スポーン地点に置き直す。
     void Reset();
+    // コースのないシーンで、車を置く位置（原点）と向きを決める。Init より前に呼ぶ。
+    void SetSpawn(Vec3 origin, float yaw) {
+        spawn_ = origin;
+        spawnYaw_ = yaw;
+    }
     const Car& GetCar() const { return car_; }
 
 private:
-    const Track* track_ = nullptr;
+    const Track* track_ = nullptr;  // コースのないシーンでは null
+    Vec3 spawn_;
+    float spawnYaw_ = 0;
     Car car_;
     BoxCollider box_;
     System::GpuMesh body_;

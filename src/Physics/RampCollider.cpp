@@ -52,6 +52,15 @@ RampCollider::RampCollider(const Track& track, const RampSpec& spec) : spec_(spe
     y1_ = roadHeight(track, end.x, end.z, center.y, spec.s + spec.length);
 }
 
+RampCollider::RampCollider(Vec3 origin, float yaw, const RampSpec& spec) : spec_(spec), onTrack_(false) {
+    material = &Materials::kRamp;
+    forward_ = Vec3{std::sin(yaw), 0, std::cos(yaw)};
+    right_ = Vec3{forward_.z, 0, -forward_.x};
+    origin_ = Vec3{origin.x, 0, origin.z};
+    y0_ = origin.y;
+    y1_ = origin.y;
+}
+
 void RampCollider::toLocal(float x, float z, float& u, float& v) const {
     Vec3 d{x - origin_.x, 0, z - origin_.z};
     u = dot(d, forward_);
@@ -81,18 +90,18 @@ RaycastHit RampCollider::GroundAt(float x, float z, float yHint) const {
     }
     hit.hit = true;
     hit.point = Vec3{x, y, z};
-    hit.s = spec_.s + u;
+    hit.s = onTrack_ ? spec_.s + u : -1.0f;
     hit.material = material;
     return hit;
 }
 
 bool RampCollider::CollideBox(BoxCollider& box, Contact& out) const {
-    const Rigidbody& body = *box.body;
-    float bottom = body.position.y + box.offset.y - box.halfExtents.y;
+    // 底面の隅の高さは pitch と roll を含めて見る。台を登って鼻先が上がっているときに、壁と取り違えないため。
     Vec3 corners[4];
-    box.Corners(corners);
+    box.BottomCorners(corners);
     float deepest = 0;
     for (const Vec3& corner : corners) {
+        float bottom = corner.y;
         float u, v;
         toLocal(corner.x, corner.z, u, v);
         float halfWidth = spec_.width * 0.5f;
@@ -103,9 +112,14 @@ bool RampCollider::CollideBox(BoxCollider& box, Contact& out) const {
             continue;  // 上面に乗り上げられる高さ
         }
         // 側面と奥の面のうち、近いほうから押し出す。手前の端は高さ 0 なので壁にならない。
+        // ただし上面からのめり込みのほうが浅ければ、坂の面に鼻先が当たっている（急な台を登り始めた）とみなし、
+        // 壁にはしない。車輪が台に乗れば車体は持ち上がる。
         float side = halfWidth - std::fabs(v);
         float back = spec_.length - u;
         float depth = std::min(side, back);
+        if (surfaceAt(u) - bottom <= depth) {
+            continue;
+        }
         if (depth <= deepest) {
             continue;
         }

@@ -851,10 +851,11 @@ float hairpinRadius(float kmh, float& speedOut) {
 }
 
 int hairpinTest() {
-    // 60 km/h で入って半径 13 m 以下、70 km/h で入っても峠のヘアピン（半径 15 m）に収まる。
-    const float entry[] = {60.0f, 70.0f};
-    const float within[] = {13.0f, 15.0f};
-    for (int i = 0; i < 2; ++i) {
+    // 60 km/h で入って半径 13 m 以下、70 km/h で 13.5 m 以下（峠のヘアピン、半径 15 m に余裕を持って収まる）、
+    // 80 km/h でも 17 m 以下（道幅を使えば収まる）。
+    const float entry[] = {60.0f, 70.0f, 80.0f};
+    const float within[] = {13.0f, 13.5f, 17.0f};
+    for (int i = 0; i < 3; ++i) {
         float speed = 0;
         float radius = hairpinRadius(entry[i], speed);
         std::printf("self-test hairpin %2.0f km/h: radius %.1f m at %.0f km/h\n", entry[i], radius, speed * 3.6f);
@@ -1403,9 +1404,12 @@ struct AlignResult {
     bool startedAligning = false;  // 離した直後に補正を始めたか
     float crossedAt = -1;    // 差の向きが逆になった（通り越した）時間（秒）
     bool alignedAfterCross = false;  // 通り越した後に、補正をしていたか
+    float peakRate = 0;      // 離した後の、車体の回る速さの最大（rad/s）。大きいほど急に振られる
+    float overshoot = 0;     // 通り越した側へ行き過ぎた角度の最大（rad）
 };
 
-// 峠の山頂の直線で、道の向きに進みながら車体を bodyDeg 傾けてドリフトし（Space を 0.3 秒押す）、離す。
+// 峠の山頂の直線で、道の向きに進みながら車体を bodyDeg 傾けてドリフトし（Space を 1.5 秒押し、アクセル 0.8 で
+// 角度を付ける）、離す。
 // yawRate は離す前の車体の回る速さ（rad/s、通り越させるときに道の向きへ速く回す）。離した後はハンドルまっすぐ、
 // アクセル 0.3 で 2 秒走る。
 AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float alignStrength) {
@@ -1420,7 +1424,7 @@ AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float
         w.omega = 80.0f / 3.6f / w.radius;
     }
     AlignResult result;
-    const int release = 18;
+    const int release = 90;  // 1.5 秒ドリフトして角度を付けてから離す
     float side = 0;
     for (int step = 0; step < release + 120; ++step) {
         if (step == release - 1) {
@@ -1428,7 +1432,7 @@ AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float
         }
         DriveInput input;
         input.handbrake = step < release;
-        input.throttle = step < release ? 0.5f : 0.3f;
+        input.throttle = step < release ? 0.8f : 0.3f;
         rig.Step(input, track);
         if (step < release) continue;
         float error = wrapPi(road - car.body.yaw);  // 山頂の直線なので、道の向きは変わらない
@@ -1437,6 +1441,8 @@ AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float
             result.startedAligning = car.ExitAligning();
             side = error > 0 ? 1.0f : -1.0f;
         }
+        result.peakRate = std::max(result.peakRate, std::fabs(car.body.yawRate));
+        if (side != 0) result.overshoot = std::max(result.overshoot, -error * side);
         if (result.alignedAt < 0 && std::fabs(error) < 5.0f / 57.3f) result.alignedAt = t;
         if (result.crossedAt < 0 && error * side < 0) result.crossedAt = t;
         // 通り越したステップでは、車はまだ通り越したことを見ていない（次の更新で見る）。その次から確かめる。
@@ -1445,7 +1451,7 @@ AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float
     return result;
 }
 
-// ドリフト後の向きの補正。Space を離すと補正を始め、補正なしより早く車体が道の向きに戻ること。
+// ドリフト後の向きの補正。Space を離すと補正を始め、急に振られずに（補正なしより穏やかに）車体が道の向きに戻ること。
 // 道の向きを通り越したら（わざと通り越したときも）、補正をやめること。
 int exitAlignTest() {
     Track track;
@@ -1453,11 +1459,13 @@ int exitAlignTest() {
     for (float body : {-35.0f, 35.0f}) {
         AlignResult with = exitAlignRun(track, body, 0.0f, 1.0f);
         AlignResult without = exitAlignRun(track, body, 0.0f, 0.0f);
-        std::printf("self-test exit align body %+3.0f deg: started %d aligned in %.2f s (without %.2f s)\n", body,
-                    with.startedAligning ? 1 : 0, with.alignedAt, without.alignedAt);
-        if (!with.startedAligning || with.alignedAt < 0) return 66;
-        // 補正なしより 0.2 秒以上早く戻る（補正なしで戻らないときは、戻れば良い）。
-        if (without.alignedAt >= 0 && with.alignedAt > without.alignedAt - 0.2f) return 67;
+        std::printf("self-test exit align body %+3.0f deg: started %d aligned in %.2f s peak %.2f rad/s overshoot %.1f deg"
+                    " (without %.2f s peak %.2f rad/s overshoot %.1f deg)\n",
+                    body, with.startedAligning ? 1 : 0, with.alignedAt, with.peakRate, with.overshoot * 57.3f,
+                    without.alignedAt, without.peakRate, without.overshoot * 57.3f);
+        // 1 秒以内に道の向きへ戻る。急に振られない（回る速さの最大が補正なしより小さく、行き過ぎは 2° 以内）。
+        if (!with.startedAligning || with.alignedAt < 0 || with.alignedAt > 1.0f) return 66;
+        if (with.peakRate > without.peakRate || with.overshoot > 2.0f / 57.3f) return 67;
     }
     // 通り越し: 離す直前に、道の向きへ速く回しておく（わざと通り越すような動き）。通り越した後は補正しない。
     for (float body : {-35.0f, 35.0f}) {

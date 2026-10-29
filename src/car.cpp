@@ -24,13 +24,14 @@ constexpr float kSwitchHoldTime = 0.1f;   // 振り返し: 倒し続ける時間
 constexpr float kSwitchGain = 16.0f;      // 振り返し: 反対側の目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kSwitchDone = 0.17f;      // 振り返し: 反対側へこの角度（rad、約 10°）移ったら終える
 constexpr float kPathRateSmoothing = 0.1f;  // 曲がりの補助: 進む向きの回る速さをならす時間（秒）
-constexpr float kMaxCurveAccel = 26.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
+constexpr float kMaxCurveAccel = 38.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
 constexpr float kMaxKeepAccel = 14.0f;      // 速さの補助が出す前向きの加速度の上限（m/s²）
 constexpr float kAlignStart = 0.05f;       // ドリフト後の向きの補正: 道の向きとの差がこれ（rad、約 3°）より大きければ始める
 constexpr float kAlignDone = 0.01f;        // 差がこれ（rad）より小さくなるか、逆向きになったら終える
 constexpr float kAlignMaxTime = 2.5f;      // 長くてもこの時間（秒）で終える
-constexpr float kAlignGain = 30.0f;        // 差（rad）に掛ける角加速度（1/s²）
-constexpr float kAlignDamping = 0.5f;      // 進む向きに対する車体の回る速さ（rad/s）に掛ける角加速度（1/s）
+constexpr float kAlignRate = 3.0f;         // 差（rad）に掛ける、目標の回る速さ（1/s）
+constexpr float kAlignMaxRate = 1.0f;      // 目標の回る速さの上限（rad/s、約 57°/s）
+constexpr float kAlignResponse = 20.0f;     // 目標の回る速さとの差（rad/s）に掛ける角加速度（1/s）
 
 }  // namespace
 
@@ -79,10 +80,13 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         }
     }
     if (aligning_ && driftExitAlign > 0) {
-        // 差に比例して回し、進む向きに対する車体の回る速さで少しだけ抑える。通り越したら補正をやめるので、
-        // 抑えすぎると、かえって戻るのが遅くなる。
-        float accel = kAlignGain * roadError - kAlignDamping * (body.yawRate - pathRate_);
-        body.AddTorque(accel * driftExitAlign * body.inertiaYaw, 0, 0, dt);
+        // 進む向きに対する車体の回る速さを、差に比例した目標の速さ（上限 kAlignMaxRate × 強さ）へ寄せる。
+        // 差に比例した力で回すと、深い角度で離したときに急に回されて道の向きを行き過ぎる。
+        // 戻ったグリップで目標より速く回るときは抑えるので、補正なしより穏やかに戻る。
+        float maxRate = kAlignMaxRate * driftExitAlign;
+        float targetRate = clampf(kAlignRate * driftExitAlign * roadError, -maxRate, maxRate);
+        float accel = kAlignResponse * (targetRate - (body.yawRate - pathRate_));
+        body.AddTorque(accel * body.inertiaYaw, 0, 0, dt);
     }
 
     // ドリフト中の後輪。普段の後輪の特性のまま、μ だけ前輪の driftRearGrip 倍にする。

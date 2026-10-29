@@ -63,11 +63,11 @@ std::vector<Piece> layout() {
         arc(15, 175, -0.04f, 10, 8),
         straight(90, -0.05f, 8),
         arc(70, 60, -0.03f, 11, 9),
-        straight(400, 0.05f, 10),
+        straight(400, 0.055f, 10),
         arc(60, 30, 0.05f, 12, 11),
         straight(220, 0.095f, 12),
-        arc(45, -55, 0.07f, 13, 13),
-        arc(45, 95, 0.07f, 14, 14),
+        arc(45, -55, 0.08f, 13, 13),
+        arc(45, 95, 0.08f, 14, 14),
     };
 }
 
@@ -77,15 +77,16 @@ void rightOf(float yaw, float& rx, float& rz) {
     rz = -std::sin(yaw);
 }
 
-// (x, z) を向き yaw で出て、始点（原点）に北向きで戻る区間。右の円弧 → 直線 → 右の円弧（半径 radius）。
-// 高さは grade で原点の高さ（0）に戻す。
-std::vector<Piece> closeLoop(float x, float z, float y, float yaw, float radius) {
+// (x, z) を向き yaw で出て、始点（原点）に北向きで戻る区間。右の円弧 → 直線 → 右の円弧（半径 radius）で
+// 原点の runUp m 手前に北向きで着き、平らな直線（山頂の直線の手前側。スタート地点を置く）で原点へ入る。
+// 高さは、直線の手前までの勾配で原点の高さ（0）に戻す。
+std::vector<Piece> closeLoop(float x, float z, float y, float yaw, float radius, float runUp) {
     float rx, rz;
     rightOf(yaw, rx, rz);
     float c1x = x + rx * radius;
     float c1z = z + rz * radius;
-    float c2x = radius;  // 原点を北向きで通る右の円の中心
-    float c2z = 0;
+    float c2x = radius;  // (0, -runUp) を北向きで通る右の円の中心
+    float c2z = -runUp;
     float heading = std::atan2(c2x - c1x, c2z - c1z);
     float length = std::hypot(c2x - c1x, c2z - c1z);
     auto positive = [](float a) {
@@ -102,6 +103,7 @@ std::vector<Piece> closeLoop(float x, float z, float y, float yaw, float radius)
     for (Piece& piece : pieces) {
         piece.grade = -y / total;
     }
+    pieces.push_back(straight(runUp, 0.0f, 0));
     return pieces;
 }
 
@@ -140,7 +142,7 @@ bool BuildTougeCourse(Track& track) {
         }
         // 決めた区間を置き終えたら、残りは始点へ戻る区間を計算して足す。
         if (index + 1 == designed) {
-            std::vector<Piece> back = closeLoop(x, z, y, yaw, 60.0f);
+            std::vector<Piece> back = closeLoop(x, z, y, yaw, 60.0f, 25.0f);
             pieces.insert(pieces.end(), back.begin(), back.end());
         }
     }
@@ -180,7 +182,7 @@ bool BuildTougeCourse(Track& track) {
     track.runoff = 1.5f;      // 砂利の路肩。その外はガードレール
     track.mountain = true;
 
-    // スタートは山頂の直線の手前（周回の最後の点から 15 m 手前）。
+    // スタートは、スタートラインの 15 m 手前。最後の右カーブを抜けた後の平らな直線の上。
     int spawn = n - static_cast<int>(15.0f / kStep);
     const TrackSample& a = track.samples[spawn];
     const TrackSample& b = track.samples[(spawn + 1) % n];

@@ -1076,6 +1076,84 @@ TougeDriveResult tougeDriveRun(const Track& track, bool verbose) {
 
 // 峠をドリフトで 1 周できること。今の車の設定のまま、サイドブレーキで向きを変えてアクセルとスティックで回る
 // 走り方で、コーナーのほとんど（8 割以上）をドリフトで、スピンせず、壁にほとんど触れずに回れる。
+struct GuardrailResult {
+    float afterHit = 0;  // 当たってから 0.5 秒後の、コースに沿った速さ（km/h）
+    float end = 0;       // 3 秒後の、コースに沿った速さ（km/h）
+    bool stuck = false;  // 4 秒たっても走り出せていない（コースに沿って 10 km/h 未満）
+    bool hit = false;    // 壁に当たったか（当たる前に向きが戻ることもある）
+};
+
+// 峠の山頂の直線で、kmh で右のガードレールへ angle 度の角度で当てる。アクセル半分で、ハンドルは中心線へ向ける。
+GuardrailResult guardrailRun(const Track& track, float kmh, float angleDeg, float bodyDeg) {
+    Rig rig(track);
+    Car& car = rig.car;
+    const float s0 = 40.0f;
+    Vec3 start = centerAt(track, s0);
+    float travel = trackYawAt(track, s0) + angleDeg / 57.3f;
+    car.Place(start, travel + bodyDeg / 57.3f);
+    car.body.velocity = Vec3{std::sin(travel), 0, std::cos(travel)} * (kmh / 3.6f);
+    for (WheelCollider& w : car.wheels) {
+        w.omega = kmh / 3.6f / w.radius;
+    }
+    GuardrailResult result;
+    int hitStep = -1;
+    for (int step = 0; step < 60 * 4; ++step) {
+        TrackPose pose = track.queryLocal(car.body.position.x, car.body.position.z, car.Origin().y,
+                                          car.ground.found ? car.ground.s : -1.0f);
+        Vec3 aim = centerAt(track, pose.s + 15.0f);
+        DriveInput input;
+        input.throttle = 0.5f;
+        // 当たるまではまっすぐ、当たった後は中心線へ戻す。
+        if (hitStep >= 0) {
+            input.steer = clampf(
+                wrapPi(std::atan2(aim.x - car.body.position.x, aim.z - car.body.position.z) - car.body.yaw) * 2.0f, -1.0f, 1.0f);
+        }
+        rig.Step(input, track);
+        float along = dot(car.body.velocity, Vec3{std::sin(pose.yaw), 0, std::cos(pose.yaw)}) * 3.6f;
+        if (hitStep < 0 && wallDepth(rig, track) > -0.05f) {
+            hitStep = step;
+        }
+        if (hitStep >= 0 && step == hitStep + 30) result.afterHit = along;
+        result.end = along;
+    }
+    result.hit = hitStep >= 0;
+    result.stuck = result.end < 10.0f;
+    std::printf("self-test guardrail %3.0f km/h %2.0f deg body %+3.0f deg: hit %d after 0.5 s %3.0f km/h end %3.0f km/h stuck %d\n",
+                kmh, angleDeg, bodyDeg, hitStep >= 0 ? 1 : 0, result.afterHit, result.end, result.stuck ? 1 : 0);
+    return result;
+}
+
+// ガードレールに斜めに当たっても止まらず、沿って滑り、そのまま走り続けられること。
+// 車体の向きは、進む向きのまま（0）、ドリフトのように壁と逆へ向いて横から当たる（−40°）、
+// 頭から壁へ向いて当たる（+40°）の 3 つ。
+int guardrailTest() {
+    Track track;
+    if (!BuildTougeCourse(track)) return 60;
+    int failed = 0;
+    // 進む向きのまま、またはドリフトのように横を向いて斜めに当たる。止まらず、角度に応じた速さ
+    //（浅ければ 6 割、45° でも 3 割）でコースに沿って進み続ける。
+    for (float body : {0.0f, -40.0f}) {
+        for (float angle : {15.0f, 30.0f, 45.0f}) {
+            GuardrailResult r = guardrailRun(track, 60.0f, angle, body);
+            if (!r.hit) continue;
+            float keep = angle < 20.0f ? 0.6f : (angle < 40.0f ? 0.45f : 0.3f);
+            if ((r.stuck || r.afterHit < 60.0f * keep) && !failed) failed = 61;
+        }
+    }
+    // 頭を壁へ向けて斜めに当たる。速さは落ちるが、壁に押し付けられたまま動けなくはならない。
+    // （ドリフトで車体を斜めにして当たるのと同じ形なので、車体の向きは変えない）
+    for (float angle : {15.0f, 30.0f}) {
+        GuardrailResult r = guardrailRun(track, 60.0f, angle, 40.0f);
+        if (r.hit && r.stuck && !failed) failed = 62;
+    }
+    // 遅い速さで頭から深く当たる。壁に沿う向きへ回され、走り出せる。
+    for (float angle : {60.0f, 75.0f}) {
+        GuardrailResult r = guardrailRun(track, 25.0f, angle, 0.0f);
+        if (r.hit && r.stuck && !failed) failed = 63;
+    }
+    return failed;
+}
+
 int tougeDriveTest() {
     Track track;
     if (!BuildTougeCourse(track)) return 50;
@@ -1134,5 +1212,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return tougeDriveTest();
+    result = tougeDriveTest();
+    if (result != 0) {
+        return result;
+    }
+    return guardrailTest();
 }

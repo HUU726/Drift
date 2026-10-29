@@ -200,6 +200,9 @@ void ColliderManager::resolve(Contact& contact) {
     body.position = body.position + n * contact.depth;
     contact.point = contact.point + n * contact.depth;
 
+    // 頭から深く当たった車体は、面に沿う向きへ回す（押し付けられたまま止まらないように）。
+    guideAlong(contact);
+
     float vn = dot(v, n);
     if (vn >= 0) {
         return;  // すでに離れる向きに動いている
@@ -226,6 +229,38 @@ void ColliderManager::resolve(Contact& contact) {
     float jt = -speedT / (1.0f / body.mass + rt * rt / body.inertiaYaw);
     jt = std::max(jt, -friction * jn);
     body.AddImpulseAt(t * jt, contact.point);
+}
+
+void ColliderManager::guideAlong(const Contact& contact) {
+    // 頭から深く当たると、タイヤが車体を面へ押し付け、ハンドルを切っても抜け出せずに止まる。
+    // そのときは、面に沿う向きのうち車体の前に近いほうへ車体を回す。
+    // 斜めに当たったとき（ドリフトで横を向いて当たったときを含む）は、そのままでも沿って滑るので回さない。
+    const PhysicsMaterial* material = contact.other->material;
+    if (!material || material->guide <= 0) {
+        return;
+    }
+    Rigidbody& body = *contact.self->body;
+    const Vec3 n = contact.normal;
+    Vec3 forward = body.Forward();
+    if (dot(contact.point - body.position, forward) < 0) {
+        return;  // 当たったのは後ろ半分
+    }
+    constexpr float kDeepNose = 0.82f;  // 頭が面へ向いている深さ（cos）。真正面から約 35° 以内
+    constexpr float kPinnedNose = 0.3f; // 止まりかけのときは、これ（約 73° 以内）でも押し付けられている
+    constexpr float kPinnedSpeed = 3.0f;
+    float into = -dot(forward, n);
+    float speed = std::sqrt(body.velocity.x * body.velocity.x + body.velocity.z * body.velocity.z);
+    if (into < kDeepNose && !(speed < kPinnedSpeed && into > kPinnedNose)) {
+        return;
+    }
+    Vec3 along{n.z, 0, -n.x};
+    if (dot(along, forward) < 0) {
+        along = along * -1.0f;
+    }
+    float diff = wrapPi(std::atan2(along.x, along.z) - body.yaw);
+    constexpr float kTurnRate = 4.0f;  // 向きの差（rad）に掛ける、回す速さ（1/s）
+    constexpr float kBlend = 0.25f;    // 1 回の接触で、その速さへ寄せる割合
+    body.yawRate += (diff * kTurnRate - body.yawRate) * kBlend * material->guide;
 }
 
 }  // namespace System

@@ -6,6 +6,8 @@ struct PhysicsMaterial {
     float friction;           // μ。タイヤの力の上限と、壁の摩擦に使う
     float rollingResistance;  // 路面が足す転がり抵抗（m/s²）。タイヤ自身の分は車が持つ
     float restitution;        // 反発係数。衝突に使う
+    // 頭から深く当たった車体を、面に沿う向きへ回す強さ（0..1）。ガードレールに押し付けられて止まらない。
+    float guide = 0;
 };
 
 namespace Materials {
@@ -18,8 +20,8 @@ inline constexpr PhysicsMaterial kCurb{"Curb", 0.95f, 0.0f, 0.1f};
 inline constexpr PhysicsMaterial kRunoff{"Runoff", 0.6f, 1.2f, 0.1f};
 // ダート（土と砂利）。滑りやすく、芝ほどではないが転がり抵抗が大きい。試験コースで使う。
 inline constexpr PhysicsMaterial kDirt{"Dirt", 0.7f, 0.6f, 0.1f};
-// 壁。車体が当たったときの摩擦と反発に使う。
-inline constexpr PhysicsMaterial kWall{"Wall", 0.3f, 0.0f, 0.2f};
+// 壁。車体が当たったときの摩擦と反発に使う。頭から深く当たったら、壁に沿う向きへ車体を回す。
+inline constexpr PhysicsMaterial kWall{"Wall", 0.3f, 0.0f, 0.2f, 1.0f};
 // ジャンプ台。上面はアスファルトと同じように走れ、側面に当たったときはあまり跳ね返らない。
 inline constexpr PhysicsMaterial kRamp{"Ramp", 1.0f, 0.0f, 0.05f};
 

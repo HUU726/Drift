@@ -43,6 +43,8 @@ public:
 private:
     void stepWheels(float dt);
     void resolve(Contact& contact);
+    // 面の材質の guide に応じて、頭から深く当たった車体を面に沿う向きへ回す。
+    void guideAlong(const Contact& contact);
 
     std::vector<Rigidbody*> bodies_;
     std::vector<WheelCollider*> wheels_;

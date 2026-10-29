@@ -17,6 +17,7 @@ struct DriveInput {
     float brake = 0;     // 0..1  停止中は後退
     float steer = 0;     // -1..1  左が負、右が正
     bool handbrake = false;  // サイドブレーキ。押している間、後輪をロックして後ろを流す
+    bool keyboardSteer = false;  // 左右をキーボードだけで入れている。振り返しを起こさない
 };
 
 struct Car {

@@ -22,7 +22,8 @@ constexpr float kSwitchStick = 0.5f;      // 振り返し: 反対へこれより
 constexpr float kSwitchThrottle = 0.1f;   // 振り返し: アクセルがこれより小さい（抜いている）ときだけ始める
 constexpr float kSwitchHoldTime = 0.1f;   // 振り返し: 倒し続ける時間（秒）。修正で一瞬倒したくらいでは始めない
 constexpr float kSwitchGain = 16.0f;      // 振り返し: 反対側の目標の角度との差（rad）に掛ける角加速度（1/s²）
-constexpr float kSwitchDone = 0.17f;      // 振り返し: 反対側へこの角度（rad、約 10°）移ったら終える
+constexpr float kKeyboardHoldThrottle = 0.5f;  // キーボードで左右を押している間、アクセルを抜いても保つ角度（このアクセルの量のときの角度）
+constexpr float kSwitchDone = 0.17f;     // 振り返し: 反対側へこの角度（rad、約 10°）移ったら終える
 constexpr float kPathRateSmoothing = 0.1f;  // 曲がりの補助: 進む向きの回る速さをならす時間（秒）
 constexpr float kMaxCurveAccel = 18.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
 constexpr float kMaxKeepAccel = 3.5f;       // 速さの補助が出す前向きの加速度の上限（m/s²）
@@ -144,7 +145,8 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         switchHold_ = 0;
     } else if (!switching_) {
         bool lifted = input.throttle < kSwitchThrottle;
-        bool opposite = angle > driftEnterAngle && lifted && input.steer * side > kSwitchStick;
+        // キーボードはアクセルを踏まずに左右を入れることが多い。振り返さず、パッドでアクセルを踏んで倒したときと同じくラインの調整にする。
+        bool opposite = angle > driftEnterAngle && lifted && !input.keyboardSteer && input.steer * side > kSwitchStick;
         switchHold_ = opposite ? switchHold_ + dt : 0.0f;
         if (switchHold_ > kSwitchHoldTime) {
             switching_ = true;
@@ -161,12 +163,15 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     // 向きを変えている間（ブレーキで流している間）は、どちらへ滑るかが決まっていないので補助しない。
     // 振り返しの間は、反対側の角度を目標に、強めに車体を回す。
     if (drifting && driftKicked_ && driftAngleAssist > 0) {
-        float target = driftMinAngle + (driftMaxAngle - driftMinAngle) * clampf(input.throttle, 0.0f, 1.0f);
+        // キーボードで左右を押している間は、アクセルを抜いていても半分踏んでいるときの角度を保つ。
+        float hold = input.keyboardSteer ? std::max(input.throttle, kKeyboardHoldThrottle) : input.throttle;
+        float target = driftMinAngle + (driftMaxAngle - driftMinAngle) * clampf(hold, 0.0f, 1.0f);
         // 角度を変える角加速度（右へ滑る向き = 角度が増える向きが正）。
         float accel = -kAngleDamping * angleRate;
         if (switching_) {
             accel += kSwitchGain * (switchSide_ * target - driftAngle);
-        } else if (input.throttle > 0.05f) {
+        } else if (input.throttle > 0.05f || input.keyboardSteer) {
+            // パッドでアクセルを踏んだまま倒すのと同じく、キーボードの左右はラインの調整になる。
             accel += kAngleGain * (side * target - driftAngle);
         }
         // 角度を増やす（右へ滑らせる）には、車体を左へ回す（ヨーが負）。

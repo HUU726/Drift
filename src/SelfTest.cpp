@@ -829,6 +829,21 @@ int driftSwitchTest() {
         if (!sameSide || rate <= prevTurn + 3.0f) return 34;
         prevTurn = rate;
     }
+    // キーボード: アクセルを踏まずに右（外）のキーを 1 秒押しても振り返さず、左のドリフトのままラインを外へ膨らませる。
+    {
+        bool sameSide = true;
+        driftScenario(80.0f, 210,
+                      [&](int step, DriveInput& input) {
+                          input.throttle = step >= 90 ? 0.0f : 0.6f;
+                          input.steer = step >= 90 && step < 150 ? 1.0f : 0.0f;
+                          input.keyboardSteer = input.steer != 0;
+                      },
+                      [&](int step, const Car& car) {
+                          if (step >= 90 && step < 150 && car.drifting) sameSide = sameSide && car.driftAngle > 0.0f;
+                      });
+        std::printf("self-test drift keyboard outward: same side %d\n", sameSide ? 1 : 0);
+        if (!sameSide) return 37;
+    }
     return 0;
 }
 

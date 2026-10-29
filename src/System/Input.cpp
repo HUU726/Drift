@@ -103,6 +103,7 @@ void Input::Poll() {
     if (keys[SDL_SCANCODE_A] || (arrows && keys[SDL_SCANCODE_LEFT])) input.steer -= 1;
     if (keys[SDL_SCANCODE_D] || (arrows && keys[SDL_SCANCODE_RIGHT])) input.steer += 1;
     if (keys[SDL_SCANCODE_SPACE]) input.handbrake = true;
+    float keySteer = input.steer;
 #ifndef __EMSCRIPTEN__
     if (pad_) {
         float throttle = stickAxis(pad_, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
@@ -126,6 +127,8 @@ void Input::Poll() {
     // 標準マッピングを Gamepad API から直接読む。
     readBrowserPad();
 #endif
+    // パッドの左右が入っていなければ、左右はキーボードだけで入れている。
+    drive_.keyboardSteer = keySteer != 0 && std::fabs(drive_.steer - keySteer) < 0.05f;
     drive_.throttle = clampf(drive_.throttle, 0, 1);
     drive_.brake = clampf(drive_.brake, 0, 1);
     drive_.steer = clampf(drive_.steer, -1, 1);

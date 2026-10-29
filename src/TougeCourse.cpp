@@ -94,7 +94,7 @@ std::vector<Piece> closeLoop(float x, float z, float y, float yaw, float radius)
     };
     float first = positive(heading - yaw) * 180.0f / kPi;
     float second = positive(-heading) * 180.0f / kPi;
-    std::vector<Piece> pieces = {arc(radius, first, 0, 16, 15), straight(length, 0, 16), arc(radius, second, 0, 17, 16)};
+    std::vector<Piece> pieces = {arc(radius, first, 0, 15, 15), straight(length, 0, 16), arc(radius, second, 0, 16, 16)};
     float total = 0;
     for (const Piece& piece : pieces) {
         total += piece.length;

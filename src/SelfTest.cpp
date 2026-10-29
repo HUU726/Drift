@@ -823,6 +823,270 @@ int tougeTest() {
     return 0;
 }
 
+// 中心線の点 i での曲がり（1/m、右へ曲がるのが正）。前後 2 点ずつの向きの差から求める。
+float curvatureAt(const Track& track, int i) {
+    const int n = static_cast<int>(track.samples.size());
+    const TrackSample& a = track.samples[(i + n - 2) % n];
+    const TrackSample& b = track.samples[i];
+    const TrackSample& c = track.samples[(i + 2) % n];
+    float h0 = std::atan2(b.x - a.x, b.z - a.z);
+    float h1 = std::atan2(c.x - b.x, c.z - b.z);
+    float run = std::hypot(b.x - a.x, b.z - a.z) + std::hypot(c.x - b.x, c.z - b.z);
+    return run > 1e-3f ? wrapPi(h1 - h0) / (0.5f * run) : 0.0f;
+}
+
+int sampleAt(const Track& track, float s) {
+    s = std::fmod(s, track.length);
+    if (s < 0) s += track.length;
+    auto it = std::upper_bound(track.samples.begin(), track.samples.end(), s,
+                               [](float value, const TrackSample& sample) { return value < sample.s; });
+    return std::max(0, static_cast<int>(it - track.samples.begin()) - 1);
+}
+
+// コーナーごとの記録。
+struct CornerLog {
+    int steps = 0;           // コーナーの中にいたステップ数
+    int driftSteps = 0;      // そのうちドリフトしていたステップ数
+    float maxAngle = 0;      // 車体の滑りの角度の最大（rad）
+    float sumAngle = 0;      // ドリフト中の角度の合計（平均を出す）
+    float entrySpeed = -1;   // 入ったときの速さ（m/s）
+    float minSpeed = 1e9f;
+    float maxLateral = 0;    // 中心からのずれの最大（m）
+    int wallSteps = 0;       // 壁に触れていたステップ数
+    int nameId = -1;
+};
+
+// 峠を、ドリフトで 1 周走る自動運転。コーナーの手前でサイドブレーキ（Space）を押して向きを変え、
+// 押したままアクセルで角度を、スティックで曲がりを決めて回り、コーナーを抜けたら離す。
+// 直線はグリップで走る。コーナーごとの角度、速さ、壁への接触を表示する。
+struct TougeDriveResult {
+    float lapTime = 0;
+    bool finished = false;
+    int spins = 0;
+    int wallSteps = 0;
+    float driftShare = 0;  // コーナーの中でドリフトしていた割合
+    int stops = 0;         // 壁などで止まり、下がり直した回数
+};
+
+TougeDriveResult tougeDriveRun(const Track& track, bool verbose) {
+    const int n = static_cast<int>(track.samples.size());
+    // 曲がりの強いところ（半径 130 m 未満）をドリフトで回る。グリップでの速さの上限（横 10 m/s²）と、
+    // ドリフトでの速さの目安（横 kDriftLat）を、止まれる減速で手前から下げる。
+    constexpr float kDriftRadius = 130.0f;
+    constexpr float kDriftLat = 8.0f;
+    std::vector<float> curvature(n);
+    std::vector<float> limit(n);
+    for (int i = 0; i < n; ++i) {
+        curvature[i] = curvatureAt(track, i);
+        float radius = 1.0f / std::max(std::fabs(curvature[i]), 1e-4f);
+        float lat = radius < kDriftRadius ? kDriftLat : 10.0f;
+        limit[i] = std::min(40.0f, std::sqrt(lat * radius));
+    }
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int k = 2 * n - 1; k >= 0; --k) {
+            int i = k % n;
+            int j = (i + 1) % n;
+            float ds = std::hypot(track.samples[j].x - track.samples[i].x, track.samples[j].z - track.samples[i].z);
+            limit[i] = std::min(limit[i], std::sqrt(limit[j] * limit[j] + 2.0f * 7.0f * ds));
+        }
+    }
+
+    Rig rig(track);
+    Car& car = rig.car;
+    std::vector<CornerLog> logs(32);
+    TougeDriveResult result;
+    float travelled = 0;
+    float prevS = -1;
+    bool holding = false;   // Space を押している
+    float backing = 0;      // 壁から下がっている残りの時間（秒）
+    float releaseWait = 0;  // 切り返しで Space を離している残りの時間（秒）
+    float stuck = 0;
+    int cornerSteps = 0;
+    int cornerDrift = 0;
+    bool wasDrifting = false;
+    int step = 0;
+    for (; step < 60 * 300 && travelled < track.length; ++step) {
+        TrackPose pose = track.queryLocal(car.body.position.x, car.body.position.z, car.Origin().y,
+                                          car.ground.found ? car.ground.s : -1.0f);
+        float speed = std::max(car.ForwardSpeed(), 0.0f);
+        Vec3 velocity = car.body.velocity;
+        float travelYaw = std::hypot(velocity.x, velocity.z) > 1.0f ? std::atan2(velocity.x, velocity.z) : car.body.yaw;
+        int index = sampleAt(track, pose.s);
+
+        // 先のコーナー: entry m 先までに、ドリフトで回る曲がりがあるか。
+        float entry = 12.0f + speed * 0.7f;
+        int cornerAhead = -1;
+        for (float d = 0; d <= entry; d += 4.0f) {
+            int i = sampleAt(track, pose.s + d);
+            if (std::fabs(curvature[i]) > 1.0f / kDriftRadius) {
+                cornerAhead = i;
+                break;
+            }
+        }
+        // 進む向きを向けたい点（少し先の中心線）。きついコーナーでは近くを見て、外側へ寄せる（内側を切りすぎない）。
+        float tight = std::fabs(curvature[sampleAt(track, pose.s + 10.0f)]);
+        float look = tight > 1.0f / 30.0f ? 4.0f + speed * 0.3f : 8.0f + speed * 0.45f;
+        Vec3 aimPoint = centerAt(track, pose.s + look);
+        int aimIndex = sampleAt(track, pose.s + look);
+        if (std::fabs(curvature[aimIndex]) > 1.0f / 30.0f) {
+            float outward = curvature[aimIndex] > 0 ? -1.5f : 1.5f;  // 右へ曲がるなら左（外）へ
+            Vec3 right{std::cos(trackYawAt(track, pose.s + look)), 0, -std::sin(trackYawAt(track, pose.s + look))};
+            aimPoint = aimPoint + right * outward;
+        }
+        float aimYaw = std::atan2(aimPoint.x - car.body.position.x, aimPoint.z - car.body.position.z);
+        float want = limit[(index + 2) % n];
+
+        // 先のコーナーの、曲がりが続く長さ。短い（20 m 未満）ものはドリフトで回らない。
+        // 向きを変えてよい速さは、そのコーナーのいちばんきついところの速さ。
+        float cornerLength = 0;
+        float kickSpeed = want;
+        if (cornerAhead >= 0) {
+            for (int k = 0; k < n && std::fabs(curvature[(cornerAhead + k) % n]) > 1.0f / kDriftRadius; ++k) {
+                cornerLength += 4.0f;
+                kickSpeed = std::min(kickSpeed, limit[(cornerAhead + k) % n]);
+            }
+        }
+
+        DriveInput input;
+        if (!holding && cornerAhead >= 0 && cornerLength >= 20.0f && speed > 10.0f && speed < kickSpeed + 3.0f &&
+            releaseWait <= 0) {
+            holding = true;
+        }
+        releaseWait = std::max(0.0f, releaseWait - kStep);
+        if (holding) {
+            input.handbrake = true;
+            float angle = std::fabs(car.driftAngle);
+            int ahead = sampleAt(track, pose.s + look);
+            float bend = curvature[ahead];
+            // 切り返し: 先の曲がりが今の滑りと逆向きなら、いったん離して押し直す（振り返し）。
+            // 右へ滑る（角度が正）のは左のコーナー（曲がりが負）。
+            float side = car.driftAngle > 0 ? -1.0f : 1.0f;
+            if (angle > 0.21f && std::fabs(bend) > 1.0f / kDriftRadius && bend * side < 0) {
+                holding = false;
+                releaseWait = 0.15f;
+            }
+            if (angle < 0.21f) {
+                // 向きを変える: 曲がる向きへいっぱいに切る（サイドブレーキで後ろが流れる）。速すぎればブレーキも足す
+                //（0.5 以上踏むとドリフトが終わるので、それより弱く）。
+                float dir = cornerAhead >= 0 ? (curvature[cornerAhead] > 0 ? 1.0f : -1.0f) : (bend > 0 ? 1.0f : -1.0f);
+                input.steer = dir;
+                if (speed > want + 2.0f) {
+                    input.brake = 0.45f;
+                }
+            } else {
+                // 曲がり: 進む向きを狙う点へ向ける回る速さを、スティックで決める（倒しきりで 0.9 rad/s）。
+                float error = wrapPi(aimYaw - travelYaw);
+                float rate = bend * speed + 2.0f * error;
+                input.steer = clampf(rate / car.driftCurveRate, -1.0f, 1.0f);
+                // 角度はアクセルで決める。速すぎれば戻し、遅ければ踏む。
+                if (speed > want + 2.0f) {
+                    input.throttle = 0.15f;
+                    input.brake = 0.3f;
+                } else {
+                    input.throttle = clampf(0.35f + (want - speed) * 0.08f, 0.2f, 0.85f);
+                }
+            }
+            // 出口: 先にドリフトの曲がりがなければ、アクセルを緩めて角度を戻し、車体がまっすぐに近づいてから離す。
+            // 横を向いたまま離すと、戻ったグリップで振られる。
+            if (cornerAhead < 0 && angle > 0.21f) {
+                input.throttle = 0.15f;
+                input.brake = 0;
+            }
+            if (cornerAhead < 0 && angle < 0.15f) {
+                holding = false;
+            }
+            if (speed < 6.0f) {
+                holding = false;
+            }
+        }
+        if (backing > 0) {
+            // 壁に止められたら、ハンドルを逆に切って下がる。
+            backing -= kStep;
+            holding = false;
+            input = DriveInput{};
+            input.brake = 1.0f;
+            input.steer = -clampf(wrapPi(aimYaw - car.body.yaw) * 3.0f, -1.0f, 1.0f);
+        } else if (!holding) {
+            float aim = wrapPi(aimYaw - car.body.yaw);
+            input.handbrake = false;
+            input.steer = clampf(aim * 3.0f, -1.0f, 1.0f);
+            if (speed > want + 0.5f) {
+                input.brake = clampf((speed - want) / 3.0f, 0.2f, 1.0f);
+            } else {
+                input.throttle = clampf((want - speed) / 3.0f + 0.3f, 0.0f, 1.0f);
+            }
+        }
+        rig.Step(input, track);
+
+        // 記録
+        if (prevS >= 0) {
+            float ds = car.ground.s - prevS;
+            if (ds < -track.length * 0.5f) ds += track.length;
+            if (ds > track.length * 0.5f) ds -= track.length;
+            if (ds > 0) travelled += ds;
+        }
+        prevS = car.ground.s;
+        int corner = track.samples[index].corner;
+        bool wall = wallDepth(rig, track) > -0.05f;
+        if (wall) result.wallSteps++;
+        if (wasDrifting && !car.drifting && std::fabs(car.driftAngle) > 1.4f) result.spins++;
+        wasDrifting = car.drifting;
+        if (corner > 0 && corner < 32 && std::fabs(curvature[index]) > 1.0f / kDriftRadius) {
+            CornerLog& log = logs[corner];
+            if (log.entrySpeed < 0) log.entrySpeed = speed;
+            log.nameId = track.samples[index].nameId;
+            log.steps++;
+            cornerSteps++;
+            if (car.drifting) {
+                log.driftSteps++;
+                cornerDrift++;
+                log.sumAngle += std::fabs(car.driftAngle);
+            }
+            log.maxAngle = std::max(log.maxAngle, std::fabs(car.driftAngle));
+            log.minSpeed = std::min(log.minSpeed, speed);
+            log.maxLateral = std::max(log.maxLateral, std::fabs(pose.lateral));
+            if (wall) log.wallSteps++;
+        }
+        stuck = speed < 1.0f && backing <= 0 ? stuck + kStep : 0.0f;
+        if (stuck > 1.0f) {
+            result.stops++;
+            backing = 1.5f;
+            stuck = 0;
+        }
+        if (result.stops > 10 || !std::isfinite(car.body.position.x)) break;
+    }
+    result.finished = travelled >= track.length;
+    result.lapTime = step * kStep;
+    result.driftShare = cornerSteps > 0 ? float(cornerDrift) / cornerSteps : 0.0f;
+    if (verbose) {
+        for (int c = 1; c < 32; ++c) {
+            const CornerLog& log = logs[c];
+            if (log.steps == 0) continue;
+            std::printf("self-test touge drive T%-2d %-16s in %3.0f min %3.0f km/h drift %3.0f%% angle avg %2.0f max %2.0f deg lateral %.1f m wall %d\n",
+                        c, track.nameOf(log.nameId), log.entrySpeed * 3.6f, log.minSpeed * 3.6f, 100.0f * log.driftSteps / log.steps,
+                        log.driftSteps > 0 ? log.sumAngle / log.driftSteps * 57.3f : 0.0f, log.maxAngle * 57.3f,
+                        log.maxLateral, log.wallSteps);
+        }
+    }
+    std::printf("self-test touge drive lap %.1f s finished %d travelled %.0f m drift %.0f%% spins %d wall %d steps stops %d\n",
+                result.lapTime, result.finished ? 1 : 0, travelled, result.driftShare * 100.0f, result.spins,
+                result.wallSteps, result.stops);
+    return result;
+}
+
+// 峠をドリフトで 1 周できること。今の車の設定のまま、サイドブレーキで向きを変えてアクセルとスティックで回る
+// 走り方で、コーナーのほとんど（8 割以上）をドリフトで、スピンせず、壁にほとんど触れずに回れる。
+int tougeDriveTest() {
+    Track track;
+    if (!BuildTougeCourse(track)) return 50;
+    TougeDriveResult r = tougeDriveRun(track, true);
+    if (!r.finished || r.stops > 0) return 51;
+    if (r.spins > 0) return 52;
+    if (r.driftShare < 0.8f) return 53;
+    if (r.wallSteps > 60) return 54;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -866,5 +1130,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return tougeTest();
+    result = tougeTest();
+    if (result != 0) {
+        return result;
+    }
+    return tougeDriveTest();
 }

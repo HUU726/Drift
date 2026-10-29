@@ -5,6 +5,7 @@
 #include "GameObject/HudObject.h"
 #include "GameObject/RaceTimerObject.h"
 #include "GameObject/RampObject.h"
+#include "GameObject/SmokeObject.h"
 #include "GameObject/TrackObject.h"
 #include "Scene/SelectScene.h"
 #include "System/Context.h"
@@ -17,6 +18,7 @@ bool RaceScene::Init() {
     car_ = Add<CarObject>();
     timer_ = Add<RaceTimerObject>();
     camera_ = Add<CameraObject>();
+    Add<SmokeObject>();
     Add<HudObject>();
     return InitObjects();
 }

@@ -56,6 +56,7 @@ add_executable(racegame
     src/GameObject/TelemetryHudObject.cpp
     src/GameObject/TuningObject.cpp
     src/GameObject/SceneSelectObject.cpp
+    src/GameObject/SmokeObject.cpp
     src/System/Renderer3D.cpp
     src/System/Renderer2D.cpp
 )

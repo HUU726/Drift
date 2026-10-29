@@ -17,6 +17,7 @@ public:
     void Snap() { ready_ = false; }
     Mat4 ViewProj() const;
     Vec3 Eye() const { return eye_; }
+    Vec3 Look() const { return look_; }
     int Mode() const { return mode_; }
 
 private:

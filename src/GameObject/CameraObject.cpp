@@ -9,6 +9,13 @@
 
 #include <cmath>
 
+namespace {
+
+// ドリフト中に、車の向きから進む向きへどれだけ寄せるか（0 で車の向き、1 で進む向き）。
+constexpr float kTravelShare = 0.7f;
+
+}  // namespace
+
 bool CameraObject::Init() {
     car_ = scene_.Find<CarObject>();
     return car_ != nullptr;
@@ -26,7 +33,13 @@ void CameraObject::LateUpdate(float dt) {
     const float back[3] = {8.6f, 4.1f, 16.0f};
     const float up[3] = {3.3f, 1.55f, 7.2f};
     const float ahead[3] = {9.0f, 6.0f, 14.0f};
-    Vec3 forward{std::sin(car.body.yaw), 0, std::cos(car.body.yaw)};
+    // ドリフト中は、車の向きと進む向きの間から見る。車の向きだけで追うと、横を向いた車体が画面の正面に来て
+    // 進む先が見えず、進む向きだけで追うと、車体の角度が分からない。
+    float yaw = car.body.yaw;
+    if (car.drifting) {
+        yaw += car.driftAngle * kTravelShare;
+    }
+    Vec3 forward{std::sin(yaw), 0, std::cos(yaw)};
     Vec3 origin = car.Origin();
     Vec3 eye = origin - forward * back[mode_] + Vec3{0, up[mode_], 0};
     Vec3 look = origin + forward * ahead[mode_] + Vec3{0, 1.15f, 0};

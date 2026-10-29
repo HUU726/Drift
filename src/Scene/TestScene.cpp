@@ -2,6 +2,7 @@
 
 #include "GameObject/CameraObject.h"
 #include "GameObject/CarObject.h"
+#include "GameObject/SmokeObject.h"
 #include "GameObject/TelemetryHudObject.h"
 #include "GameObject/TestGroundObject.h"
 #include "GameObject/TuningObject.h"
@@ -16,6 +17,7 @@ bool TestScene::Init() {
     TestCourse layout;  // 配置の既定値（スタート地点）を読むだけ
     car_->SetSpawn(layout.spawn, layout.spawnYaw);
     camera_ = Add<CameraObject>();
+    Add<SmokeObject>();
     Add<TelemetryHudObject>();
     Add<TuningObject>();
     return InitObjects();

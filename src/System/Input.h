@@ -12,7 +12,8 @@ enum class Action {
     Pause,
     Camera,
     Help,
-    SwitchScene,  // レースと試験コースを切り替える
+    Back,     // Esc / パッドの B。シーン選択の画面へ戻る（シーン選択の画面では終了）
+    Confirm,  // Enter / Space / パッドの A。シーン選択の画面で決める
     // 調整の画面（試験コース）。上下左右は押し続けると繰り返す。
     MenuToggle,
     MenuUp,
@@ -24,7 +25,7 @@ enum class Action {
 };
 
 // キーボードとパッドの入力。1 フレームの流れは BeginFrame → OnEvent（イベントごと）→ Poll。
-// SDL_QUIT と Esc は App が処理する。
+// SDL_QUIT は App が処理する。
 class Input {
 public:
     bool Init();
@@ -55,6 +56,10 @@ private:
     bool prevCamera_ = false;
     bool prevReset_ = false;
     bool prevPause_ = false;
+    bool prevBack_ = false;
+    bool prevConfirm_ = false;
+    bool prevUp_ = false;
+    bool prevDown_ = false;
 #endif
 };
 

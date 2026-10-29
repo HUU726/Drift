@@ -5,7 +5,7 @@
 #include "GameObject/TelemetryHudObject.h"
 #include "GameObject/TestGroundObject.h"
 #include "GameObject/TuningObject.h"
-#include "Scene/RaceScene.h"
+#include "Scene/SelectScene.h"
 #include "System/Context.h"
 #include "System/Input.h"
 #include "System/SceneManager.h"
@@ -31,8 +31,8 @@ void TestScene::OnStartUpdate(float dt) {
     if (input.Pressed(System::Action::Pause)) {
         paused_ = !paused_;
     }
-    if (input.Pressed(System::Action::SwitchScene)) {
-        Ctx().scenes.Change<RaceScene>();
+    if (input.Pressed(System::Action::Back)) {
+        Ctx().scenes.Change<SelectScene>();
     }
 }
 

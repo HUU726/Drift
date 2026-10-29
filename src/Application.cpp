@@ -1,7 +1,7 @@
 #include "Application.h"
 
 #include "GameObject/TrackObject.h"
-#include "Scene/RaceScene.h"
+#include "Scene/SelectScene.h"
 #include "SelfTest.h"
 
 #include <SDL_image.h>
@@ -51,7 +51,7 @@ bool App::Init(int argc, char** argv) {
     sound_.Init();
     physics_.Init();
     input_.Init();
-    if (!scenes_.Init<RaceScene>(ctx_)) {
+    if (!scenes_.Init<SelectScene>(ctx_)) {
         UnInit();
         return false;
     }
@@ -119,8 +119,6 @@ void App::frame() {
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) {
             running_ = false;
-        } else if (event.type == SDL_KEYDOWN && !event.key.repeat && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-            running_ = false;
         } else {
             input_.OnEvent(event);
         }
@@ -158,7 +156,7 @@ void App::frame() {
     SDL_GL_SwapWindow(window_);
 
     // シーンの入れ替えは、更新の途中で自分のシーンを壊さないようにフレームの最後で行う。
-    if (!scenes_.ApplyPending()) {
+    if (!scenes_.ApplyPending() || scenes_.QuitRequested()) {
         running_ = false;
     }
 }

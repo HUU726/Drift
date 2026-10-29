@@ -31,11 +31,15 @@ public:
     void Change() { pending_ = std::make_unique<T>(*ctx_); }
     // 予約があれば今のシーンを UnInit し、新しいシーンを Init する。Init に失敗したら false。
     bool ApplyPending();
+    // シーンがアプリの終了を頼む。App がフレームの最後に見る（ブラウザでは使わない）。
+    void RequestQuit() { quitRequested_ = true; }
+    bool QuitRequested() const { return quitRequested_; }
 
 private:
     Context* ctx_ = nullptr;
     std::unique_ptr<Scene> current_;
     std::unique_ptr<Scene> pending_;
+    bool quitRequested_ = false;
 };
 
 }  // namespace System

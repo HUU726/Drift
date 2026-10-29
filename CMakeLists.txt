@@ -45,6 +45,7 @@ add_executable(racegame
     src/Scene/Scene.cpp
     src/Scene/RaceScene.cpp
     src/Scene/TestScene.cpp
+    src/Scene/SelectScene.cpp
     src/GameObject/TrackObject.cpp
     src/GameObject/RampObject.cpp
     src/GameObject/CarObject.cpp
@@ -54,6 +55,7 @@ add_executable(racegame
     src/GameObject/TestGroundObject.cpp
     src/GameObject/TelemetryHudObject.cpp
     src/GameObject/TuningObject.cpp
+    src/GameObject/SceneSelectObject.cpp
     src/System/Renderer3D.cpp
     src/System/Renderer2D.cpp
 )

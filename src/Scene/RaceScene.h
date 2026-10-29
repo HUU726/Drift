@@ -7,6 +7,7 @@ class CarObject;
 class RaceTimerObject;
 
 // レース本編。リスタート（R）とポーズ（P）はシーンの入れ替えではなく、このシーンの状態として扱う。
+// Esc でシーン選択の画面に戻る。
 class RaceScene : public Scene {
 public:
     explicit RaceScene(System::Context& ctx) : Scene(ctx) {}

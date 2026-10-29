@@ -6,7 +6,7 @@ class CameraObject;
 class CarObject;
 
 // 試験コース。広い平面、S 字、角度の違うジャンプ台、ダートとアスファルトで、車の動きを試す。
-// T でレースに戻る。R で車をスタート地点に戻し、P でポーズする。Tab で調整の画面を開く。
+// Esc でシーン選択の画面に戻る。R で車をスタート地点に戻し、P でポーズする。Tab で調整の画面を開く。
 class TestScene : public Scene {
 public:
     explicit TestScene(System::Context& ctx) : Scene(ctx) {}

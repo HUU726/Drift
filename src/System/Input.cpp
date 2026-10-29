@@ -64,7 +64,8 @@ void Input::OnEvent(const SDL_Event& event) {
         else if (code == SDL_SCANCODE_C) press(Action::Camera);
         else if (code == SDL_SCANCODE_P) press(Action::Pause);
         else if (code == SDL_SCANCODE_H) press(Action::Help);
-        else if (code == SDL_SCANCODE_T) press(Action::SwitchScene);
+        else if (code == SDL_SCANCODE_ESCAPE) press(Action::Back);
+        else if (code == SDL_SCANCODE_RETURN || code == SDL_SCANCODE_KP_ENTER || code == SDL_SCANCODE_SPACE) press(Action::Confirm);
         else if (code == SDL_SCANCODE_TAB) press(Action::MenuToggle);
         else if (code == SDL_SCANCODE_E) press(Action::Export);
     }
@@ -85,6 +86,10 @@ void Input::OnEvent(const SDL_Event& event) {
         if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK) press(Action::Reset);
         else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START) press(Action::Pause);
         else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_Y) press(Action::Camera);
+        else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A) press(Action::Confirm);
+        else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_B) press(Action::Back);
+        else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_UP) press(Action::MenuUp);
+        else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) press(Action::MenuDown);
     }
 }
 
@@ -149,8 +154,13 @@ void Input::readBrowserPad() {
     bool camera = false;
     bool reset = false;
     bool pause = false;
+    bool back = false;
+    bool confirm = false;
+    bool up = false;
+    bool down = false;
     if (emscripten_sample_gamepad_data() != EMSCRIPTEN_RESULT_SUCCESS) {
         prevCamera_ = prevReset_ = prevPause_ = false;
+        prevBack_ = prevConfirm_ = prevUp_ = prevDown_ = false;
         return;
     }
     const int count = emscripten_get_num_gamepads();
@@ -185,6 +195,10 @@ void Input::readBrowserPad() {
             camera = camera || held(3);
             reset = reset || held(8);
             pause = pause || held(9);
+            confirm = confirm || held(0);
+            back = back || held(1);
+            up = up || held(12);
+            down = down || held(13);
         } else if (pad.numAxes >= 6) {
             input.throttle = std::max(input.throttle, triggerLevel(axis(5)));
             input.brake = std::max(input.brake, triggerLevel(axis(4)));
@@ -195,7 +209,15 @@ void Input::readBrowserPad() {
     if (pause && !prevPause_) press(Action::Pause);
     prevCamera_ = camera;
     prevReset_ = reset;
+    if (back && !prevBack_) press(Action::Back);
+    if (confirm && !prevConfirm_) press(Action::Confirm);
+    if (up && !prevUp_) press(Action::MenuUp);
+    if (down && !prevDown_) press(Action::MenuDown);
     prevPause_ = pause;
+    prevBack_ = back;
+    prevConfirm_ = confirm;
+    prevUp_ = up;
+    prevDown_ = down;
 }
 #endif
 

@@ -197,6 +197,12 @@ void TuningObject::buildDetailItems() {
     };
 
     // 足回り
+    // タイヤの力を掛ける高さ。上げるほど、曲がるときやドリフトから戻るときに車体が傾きにくく、後輪が浮きにくい。
+    add("SUSPENSION", {"TIRE FORCE HEIGHT M", "tire_force_height", 0, 0.5f, 0.01f,
+                       [&car] { return car.wheels[0].forceAppHeight; },
+                       [&car](float v) {
+                           for (WheelCollider& w : car.wheels) w.forceAppHeight = v;
+                       }});
     add("SUSPENSION", {"FRONT SPRING N/M", "front_spring", 10000, 80000, 1000,
                        [&car] { return car.wheels[Car::kFrontLeft].springRate; },
                        [axle](float v) { axle(true, [v](WheelCollider& w) { w.springRate = v; }); }});

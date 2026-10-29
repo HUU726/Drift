@@ -36,6 +36,9 @@ constexpr float kRearAntiRoll = 8000.0f;
 // タイヤと車輪
 constexpr float kWheelInertia = 1.2f;       // kg·m²
 constexpr float kRollingDecel = 0.15f;      // タイヤ自身の転がり抵抗（車を減速させる加速度、m/s²。μr 約 0.015）
+// タイヤの力を掛ける高さ（接地点からの上、m）。重心（地面から約 0.5 m）との差が、車体を傾ける腕の長さになる。
+// 接地点のままだと、グリップ（μ 2.6）が横転し始める横の加速度（約 1.6 G）を越え、後輪が浮いて跳ねる。
+constexpr float kForceAppHeight = 0.25f;
 constexpr bool kTractionControl = true;     // 駆動輪が空転しないように回転を抑える（切るとパワースライド）
 constexpr bool kAntiLockBrakes = true;      // ブレーキで車輪がロックしないように回転を保つ
 constexpr float kSlipControlShare = 0.8f;   // 上の 2 つが許すスリップ率（ピークに対する割合）

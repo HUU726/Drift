@@ -863,6 +863,42 @@ int hairpinTest() {
     return 0;
 }
 
+// ドリフトから普段の走りへ戻るとき（Space を離したとき）に、後輪が浮いて跳ねないこと。
+// 戻るグリップの横の力で車体が大きく傾くと、内側の後輪が浮き、逆へ振られて叩きつけられる。
+int exitBounceTest() {
+    for (float kmh : {80.0f, 120.0f}) {
+        for (float throttle : {0.5f, 1.0f}) {
+            const int release = 30 + 180;
+            int airSteps[2] = {0, 0};
+            float minLoad[2] = {1e9f, 1e9f}, maxLoad[2] = {0, 0};
+            float maxRoll = 0, maxRollRate = 0, maxVy = 0;
+            driftScenario(kmh, release + 120,
+                          [&](int step, DriveInput& input) {
+                              input.throttle = step < release ? throttle : 0.3f;
+                              input.handbrake = step < release;
+                          },
+                          [&](int step, const Car& car) {
+                              if (step < release) return;
+                              for (int k = 0; k < 2; ++k) {
+                                  const WheelCollider& w = car.wheels[Car::kRearLeft + k];
+                                  if (!w.grounded) airSteps[k]++;
+                                  minLoad[k] = std::min(minLoad[k], w.load);
+                                  maxLoad[k] = std::max(maxLoad[k], w.load);
+                              }
+                              maxRoll = std::max(maxRoll, std::fabs(car.body.roll));
+                              maxRollRate = std::max(maxRollRate, std::fabs(car.body.rollRate));
+                              maxVy = std::max(maxVy, std::fabs(car.body.velocity.y));
+                          });
+            std::printf("self-test exit %3.0f km/h throttle %.1f: rear air %d %d steps load %.0f..%.0f / %.0f..%.0f N roll %.3f rate %.2f vy %.2f\n",
+                        kmh, throttle, airSteps[0], airSteps[1], minLoad[0], maxLoad[0], minLoad[1], maxLoad[1], maxRoll,
+                        maxRollRate, maxVy);
+            // 後輪はほとんど浮かず（2 ステップ以下）、車体の傾きは 6° 以下。
+            if (airSteps[0] > 2 || airSteps[1] > 2 || maxRoll > 0.1f) return 37;
+        }
+    }
+    return 0;
+}
+
 int driftTest() {
     for (float kmh : {80.0f, 100.0f, 120.0f}) {
         for (float throttle : {0.5f, 1.0f}) {
@@ -1410,6 +1446,10 @@ int RunSelfTest(const Track& track) {
         return result;
     }
     result = driftBrakeTest();
+    if (result != 0) {
+        return result;
+    }
+    result = exitBounceTest();
     if (result != 0) {
         return result;
     }

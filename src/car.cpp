@@ -144,6 +144,7 @@ Car::Car() {
         wheel.tire = i < kRearLeft ? static_cast<const ITireModel*>(&frontTire) : &rearGripTire;
         wheel.wheelInertia = kWheelInertia;
         wheel.rollingDecel = kRollingDecel;
+        wheel.forceAppHeight = kForceAppHeight;
         wheel.antiLock = kAntiLockBrakes;
         wheel.tractionControl = kTractionControl;
         wheel.slipControlShare = kSlipControlShare;

@@ -26,6 +26,9 @@ public:
     const ITireModel* tire = nullptr;
     float wheelInertia = 1.2f;   // kg·m²
     float rollingDecel = 0.9f;   // タイヤ自身の転がり抵抗（車を減速させる加速度、m/s²）
+    // タイヤの力を掛ける高さ（接地点からの上、m）。0 なら接地点。上げるほど、曲がるときに車体を傾ける力が小さくなる
+    //（横の力の腕が短くなる）。滑りの計算は接地点で行う。
+    float forceAppHeight = 0;
 
     // 操作（Car が固定ステップごとに決める）
     float steer = 0;        // 切れ角（rad、右が正）

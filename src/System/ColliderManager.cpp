@@ -158,7 +158,7 @@ void ColliderManager::stepWheels(float dt) {
         wheel->Update(hit, mountWorld, dt);
     }
     for (WheelCollider* wheel : wheels_) {
-        // サスペンションの力は取付点に、タイヤの力は接地点に加える。接地点は重心より低いので、
+        // サスペンションの力は取付点に、タイヤの力は接地点の forceAppHeight 上に加える。そこは重心より低いので、
         // 加速で後ろが沈み、曲がると外へ傾く（荷重移動）。
         float load = wheel->Force();
         if (load > 0) {
@@ -166,7 +166,7 @@ void ColliderManager::stepWheels(float dt) {
         }
         Vec3 tireForce, contact;
         wheel->StepTire(load, dt, kGravity, tireForce, contact);
-        wheel->body->AddForceAt(tireForce, contact);
+        wheel->body->AddForceAt(tireForce, contact + Vec3{0, wheel->forceAppHeight, 0});
     }
     for (Rigidbody* body : bodies_) {
         body->Integrate(dt, kGravity);

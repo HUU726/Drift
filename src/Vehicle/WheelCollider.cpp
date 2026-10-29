@@ -94,7 +94,7 @@ float WheelCollider::limitSlip(float w, float vx, float speed, float slipAngle) 
     float lateralUse = slipAngle / tire->PeakSlipAngle();
     float remaining = std::sqrt(std::max(0.05f, 1.0f - lateralUse * lateralUse));
     float limit = tire->PeakSlipRatio() * slipControlShare * remaining * speed;
-    if (antiLock && brakeTorque > 0) {
+    if (antiLock && !handbrake && brakeTorque > 0) {
         if (vx > 0) w = std::max(w, (vx - limit) / radius);
         if (vx < 0) w = std::min(w, (vx + limit) / radius);
     }

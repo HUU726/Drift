@@ -227,6 +227,12 @@ void TuningObject::buildDetailItems() {
     add("BRAKE AND STEERING", {"BRAKE FRONT SHARE", "brake_front_share", 0.3f, 0.8f, 0.05f,
                                [&car] { return car.brakeFrontShare; },
                                [&car](float v) { car.brakeFrontShare = v; }});
+    add("BRAKE AND STEERING", {"HANDBRAKE M/S2", "handbrake_decel", 0, 50, 1,
+                               [&car] { return car.handbrakeDecel; },
+                               [&car](float v) { car.handbrakeDecel = v; }});
+    add("BRAKE AND STEERING", {"STEER ASSIST", "steer_assist", 0, 1, 1,
+                               [&car] { return car.steerAssist ? 1.0f : 0.0f; },
+                               [&car](float v) { car.steerAssist = v > 0.5f; }, "OFF", "ON"});
     add("BRAKE AND STEERING", {"MAX STEER DEG", "max_steer_deg", 10, 45, 1,
                                [&car] { return car.maxSteer * kRadToDeg; },
                                [&car](float v) { car.maxSteer = v / kRadToDeg; }});

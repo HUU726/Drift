@@ -38,6 +38,9 @@ void TelemetryHudObject::Draw2D(System::Renderer2D& hud) {
     }
     hud.DrawText(250, 34, 2.2f, line, 0.85f, 0.88f, 0.92f, 1);
     hud.DrawText(24, 64, 2.2f, "TEST COURSE", 0.95f, 0.8f, 0.35f, 1);
+    if (car.wheels[Car::kRearLeft].handbrake) {
+        hud.DrawText(250, 64, 2.2f, "HANDBRAKE", 1, 0.45f, 0.35f, 1);
+    }
 
     // 車体: 横滑りの速さ、ヨーレート、横の加速度（ヨーレート × 速度）、pitch と roll、空中の時間
     float lateralG = body.yawRate * car.ForwardSpeed() / 9.81f;
@@ -65,7 +68,7 @@ void TelemetryHudObject::Draw2D(System::Renderer2D& hud) {
                      "AHEAD ASPHALT  RIGHT DIRT  LEFT RAMPS 5/10/15/20  FAR AHEAD S-CURVES",
                      0.9f, 0.92f, 0.94f, 1);
         hud.DrawText(24, float(hud.Height()) - 54, 1.7f,
-                     "ESC MENU  R RESET  C CAMERA  P PAUSE  H HELP  TAB TUNING",
+                     "SPACE HANDBRAKE  ESC MENU  R RESET  C CAMERA  P PAUSE  H HELP  TAB TUNING",
                      0.75f, 0.8f, 0.84f, 1);
     }
     if (scene_.Paused()) {

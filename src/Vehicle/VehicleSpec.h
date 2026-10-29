@@ -39,6 +39,9 @@ constexpr float kRollingDecel = 0.15f;      // タイヤ自身の転がり抵抗
 constexpr bool kTractionControl = true;     // 駆動輪が空転しないように回転を抑える（切るとパワースライド）
 constexpr bool kAntiLockBrakes = true;      // ブレーキで車輪がロックしないように回転を保つ
 constexpr float kSlipControlShare = 0.8f;   // 上の 2 つが許すスリップ率（ピークに対する割合）
+// 後輪のグリップ用タイヤの μ の倍率 / 前輪の倍率。後輪を強くして、ハンドルを切っただけでは後ろが流れないようにする。
+// 1.0 だと 100 km/h でハンドルをいっぱいに切ったときに後輪が 20° 以上滑ってスピンした。
+constexpr float kRearGripRatio = 1.3f;
 
 // 空中姿勢制御（ゲーム用の補助）
 constexpr bool kAirControl = true;

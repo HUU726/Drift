@@ -102,6 +102,7 @@ void Input::Poll() {
     if (keys[SDL_SCANCODE_S] || (arrows && keys[SDL_SCANCODE_DOWN])) input.brake = 1;
     if (keys[SDL_SCANCODE_A] || (arrows && keys[SDL_SCANCODE_LEFT])) input.steer -= 1;
     if (keys[SDL_SCANCODE_D] || (arrows && keys[SDL_SCANCODE_RIGHT])) input.steer += 1;
+    if (keys[SDL_SCANCODE_SPACE]) input.handbrake = true;
 #ifndef __EMSCRIPTEN__
     if (pad_) {
         float throttle = stickAxis(pad_, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
@@ -116,6 +117,7 @@ void Input::Poll() {
         if (SDL_GameControllerGetButton(pad_, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) input.brake = 1;
         if (SDL_GameControllerGetButton(pad_, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) input.steer -= 1;
         if (SDL_GameControllerGetButton(pad_, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) input.steer += 1;
+        if (SDL_GameControllerGetButton(pad_, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) input.handbrake = true;
     }
 #endif
     drive_ = input;
@@ -187,6 +189,7 @@ void Input::readBrowserPad() {
             if (held(15)) input.steer += 1;
             if (held(12)) input.throttle = 1;
             if (held(13)) input.brake = 1;
+            if (held(5)) input.handbrake = true;
             float throttle = analog(7);
             float brake = analog(6);
             if (throttle < 0.01f && pad.numAxes > 5) throttle = triggerLevel(axis(5));

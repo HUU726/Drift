@@ -557,6 +557,59 @@ int testCourseTest() {
     return 0;
 }
 
+struct SteerResult {
+    int slidingSteps = 0;  // どれかの車輪がピークを越えて滑っていたステップ数
+    float maxFront = 0;    // 前輪の滑りの角度の最大（rad）
+    float maxRear = 0;     // 後輪の滑りの角度の最大（rad）
+    float maxSideSlip = 0; // 車体の横の速さの最大（m/s）
+};
+
+// アスファルトで速度 kmh からハンドルをいっぱいに切り、2 秒間のタイヤの滑りを測る。
+// handbrakeSteps の間はサイドブレーキも掛ける。
+SteerResult steerRun(float kmh, float throttle, int handbrakeSteps) {
+    CourseRig rig;
+    rig.Launch(-40.0f, -40.0f, kmh / 3.6f);
+    SteerResult result;
+    int& slidingSteps = result.slidingSteps;
+    float& maxFront = result.maxFront;
+    float& maxRear = result.maxRear;
+    float& maxSideSlip = result.maxSideSlip;
+    for (int step = 0; step < 120; ++step) {
+        DriveInput input;
+        input.steer = 1;
+        input.throttle = throttle;
+        input.handbrake = step < handbrakeSteps;
+        rig.Step(input);
+        const Car& car = rig.car;
+        bool sliding = false;
+        for (int i = 0; i < Car::kWheelCount; ++i) {
+            sliding = sliding || car.wheels[i].sliding;
+            float angle = std::fabs(car.wheels[i].slipAngle);
+            if (i < Car::kRearLeft) maxFront = std::max(maxFront, angle);
+            else maxRear = std::max(maxRear, angle);
+        }
+        slidingSteps += sliding ? 1 : 0;
+        maxSideSlip = std::max(maxSideSlip, std::fabs(car.body.LateralSpeed()));
+    }
+    std::printf("self-test steer %3.0f km/h throttle %.1f handbrake %3d sliding %3d/120 front %.1f deg rear %.1f deg side %.2f m/s end %.0f km/h\n",
+                kmh, throttle, handbrakeSteps, slidingSteps, maxFront * 57.3f, maxRear * 57.3f, maxSideSlip,
+                rig.car.ForwardSpeed() * 3.6f);
+    return result;
+}
+
+// ハンドルを切っただけでは滑らないこと（アクセルを離したまま切る）と、サイドブレーキで後ろが流れること。
+int steerTest() {
+    for (float kmh : {40.0f, 70.0f, 100.0f, 130.0f}) {
+        SteerResult coast = steerRun(kmh, 0.0f, 0);
+        steerRun(kmh, 1.0f, 0);
+        // 後輪の滑りの角度がピーク（約 6.9°）を大きく越えたり、車体が横へ流れたりしたらスピンしかけている。
+        if (coast.maxRear > 9.0f / 57.3f || coast.maxSideSlip > 5.0f) return 22;
+    }
+    SteerResult handbrake = steerRun(70.0f, 0.0f, 36);
+    if (handbrake.maxRear < 20.0f / 57.3f) return 23;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -588,5 +641,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return testCourseTest();
+    result = testCourseTest();
+    if (result != 0) {
+        return result;
+    }
+    return steerTest();
 }

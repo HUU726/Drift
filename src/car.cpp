@@ -38,6 +38,7 @@ Car::Car() {
         wheel.tractionControl = kTractionControl;
         wheel.slipControlShare = kSlipControlShare;
     }
+    rearGripTire.params.muScale *= kRearGripRatio;
     airControl.enabled = VehicleSpec::kAirControl;
     airControl.strength = VehicleSpec::kAirControlStrength;
     airControl.landingAssist = VehicleSpec::kLandingAssist;
@@ -145,6 +146,15 @@ void Car::update(float dt, const DriveInput& input, const Track* track) {
     float step = steerRate * dt;
     steerAngle += clampf(target - steerAngle, -step, step);
     steerAngle = clampf(steerAngle, -maxSteer, maxSteer);
+    // ハンドルの補助。前輪の滑りの角度（進む向きと車輪の向きの差）がピークを越えないように切れ角を抑え、
+    // ハンドルを切っただけではタイヤが滑らないようにする。車が横に滑っているときは、進む向きへの逆ハンドルは切れる。
+    if (steerAssist && std::fabs(speed) > 3.0f) {
+        Vec3 frontAxle = body.ToWorld(Vec3{0, wheels[kFrontLeft].mount.y, wheels[kFrontLeft].mount.z});
+        Vec3 v = body.VelocityAt(frontAxle);
+        float travel = std::atan2(dot(v, body.Right()), std::fabs(dot(v, body.Forward())));
+        float limit = frontTire.PeakSlipAngle() * steerAssistShare;
+        steerAngle = clampf(steerAngle, travel - limit, travel + limit);
+    }
 
     // 止まってブレーキを押し続けると後退に入る。後退に入った後は、速度が出てもブレーキを離すまで後退を続ける。
     bool holdingBrake = input.brake > 0.5f && input.throttle < 0.1f;
@@ -172,7 +182,7 @@ void Car::update(float dt, const DriveInput& input, const Track* track) {
     float rearOmega = 0.5f * (wheels[kRearLeft].omega + wheels[kRearRight].omega);
     float axleTorque = powertrain->Update(throttle, reversing, rearOmega, dt);
 
-    // 駆動は後輪の左右に均等（オープンデフ）、ブレーキは前 6 : 後 4。
+    // 駆動は後輪の左右に均等（オープンデフ）、ブレーキは前 6 : 後 4。サイドブレーキは後輪だけ。
     const float radius = VehicleSpec::kWheelRadius;
     for (int i = 0; i < kWheelCount; ++i) {
         WheelCollider& wheel = wheels[i];
@@ -180,6 +190,13 @@ void Car::update(float dt, const DriveInput& input, const Track* track) {
         wheel.steer = front ? steerAngle : 0.0f;
         float driveTorque = front ? 0.0f : axleTorque * 0.5f;
         float brakeTorque = mass * brake * radius * 0.5f * (front ? brakeFrontShare : 1.0f - brakeFrontShare);
+        // サイドブレーキは後輪だけに掛け、ABS を効かせずにロックさせる。掛けている間は駆動を切る（クラッチを切る）。
+        // 切らないと、エンジンブレーキの分でトラクションコントロールが回転を保ち、ロックしない。
+        wheel.handbrake = !front && input.handbrake;
+        if (wheel.handbrake) {
+            brakeTorque += mass * handbrakeDecel * radius * 0.5f;
+            driveTorque = 0;
+        }
         wheel.driveTorque = driveTorque;
         wheel.brakeTorque = brakeTorque;
     }

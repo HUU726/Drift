@@ -16,6 +16,7 @@ struct DriveInput {
     float throttle = 0;  // 0..1
     float brake = 0;     // 0..1  停止中は後退
     float steer = 0;     // -1..1  左が負、右が正
+    bool handbrake = false;  // サイドブレーキ。押している間、後輪をロックして後ろを流す
 };
 
 struct Car {
@@ -35,9 +36,12 @@ struct Car {
     // 運転と車体の値。試験コースの調整の画面でプレイ中に変えられる。既定の値は VehicleSpec と同じ。
     float brakeDecel = 30.0f;        // ブレーキいっぱいで出したい減速（m/s²）。実際の減速はタイヤで決まる
     float brakeFrontShare = 0.6f;    // ブレーキの前の割合
+    float handbrakeDecel = 25.0f;    // サイドブレーキの強さ（後輪だけで出したい減速、m/s²）。後輪がロックする大きさ
     float maxSteer = 0.46f;          // 止まっているときの最大の切れ角（rad）
     float steerSpeedFalloff = 0.085f;  // 速度 1 m/s あたりで最大の切れ角を減らす割合
     float steerRate = 2.6f;          // ハンドルを切る速さ（rad/s）
+    bool steerAssist = true;         // 前輪の滑りの角度がピークを越えないように切れ角を抑える
+    float steerAssistShare = 0.9f;   // 補助が許す滑りの角度（ピークに対する割合）
     float mass = VehicleSpec::kMass;
     float dragPerMass = VehicleSpec::kDrag;
     float centerOfMassY = VehicleSpec::kCenterOfMassY;  // 原点から重心までの高さ

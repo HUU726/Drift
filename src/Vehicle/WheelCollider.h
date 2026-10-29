@@ -31,6 +31,7 @@ public:
     float steer = 0;        // 切れ角（rad、右が正）
     float driveTorque = 0;  // N·m。前へ回す向きが正
     float brakeTorque = 0;  // N·m。回転を止める向きに掛かる大きさ
+    bool handbrake = false; // サイドブレーキが掛かっている。ABS を効かせず、車輪をロックさせる
     bool antiLock = true;           // ABS: ブレーキで滑りすぎないように回転を保つ
     bool tractionControl = true;    // 駆動で滑りすぎないように回転を抑える
     float slipControlShare = 0.8f;  // 上の 2 つが許すスリップ率（ピークのスリップ率に対する割合）

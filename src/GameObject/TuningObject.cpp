@@ -126,6 +126,10 @@ void TuningObject::buildBasicItems() {
     add("DRIFT", {"DRIFT BOOST M/S2", "drift_boost", 0, 8, 0.25f,
                   [&car] { return car.driftBoost; },
                   [&car](float v) { car.driftBoost = v; }});
+    // ドリフト中の加速を止める速さの目安（今回っている弧を、この横の加速度で回れる速さまで加速する）。
+    add("DRIFT", {"DRIFT COMFORT M/S2", "drift_comfort_lat", 5, 40, 1,
+                  [&car] { return car.driftComfortLat; },
+                  [&car](float v) { car.driftComfortLat = v; }});
     add("DRIFT", {"DRIFT EXIT BOOST M/S2", "drift_exit_boost", 0, 15, 0.5f,
                   [&car] { return car.driftExitBoost; },
                   [&car](float v) { car.driftExitBoost = v; }});

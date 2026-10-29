@@ -30,6 +30,8 @@ constexpr float kAlignStart = 0.05f;       // ドリフト後の向きの補正:
 constexpr float kAlignDone = 0.01f;        // 差がこれ（rad）より小さくなるか、逆向きになったら終える
 constexpr float kAlignMaxTime = 2.5f;      // 長くてもこの時間（秒）で終える
 constexpr float kExitBoostTime = 0.6f;     // ドリフトを抜けたときの加速を続ける時間（秒）
+constexpr float kBoostMinPathRate = 0.05f;  // ドリフト中の加速: 弧の半径を求めるときの、進む向きの回る速さの下限（rad/s）
+constexpr float kBoostFadeSpeed = 3.0f;     // ドリフト中の加速: 気持ちよく回れる速さの、この速さ（m/s）手前から弱める
 constexpr float kAlignRate = 3.0f;         // 差（rad）に掛ける、目標の回る速さ（1/s）
 constexpr float kAlignMaxRate = 3.0f;      // 目標の回る速さの上限（rad/s、約 170°/s）。差が大きいほど速く戻す
 constexpr float kAlignResponse = 20.0f;     // 目標の回る速さとの差（rad/s）に掛ける角加速度（1/s）
@@ -211,11 +213,18 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         lastKeepAccel_ = keep;
     }
 
-    // ドリフト中の加速。角度が付いた後、アクセルの踏み込み × driftBoost で進む向きへ押す（ゲームとしての補助）。
-    // 回る半径はスティックの量で決まり速さによらないので、同じ弧のまま速く回れる。
+    // ドリフト中の加速（ゲームとしての補助）。角度が付いた後、アクセルを踏んでいれば（踏む量によらず）driftBoost で
+    // 進む向きへ押す。ただし、今回っている弧を横の加速度 driftComfortLat で回れる速さ（気持ちよく回れる速さ）までで、
+    // それを越えたら押さない。アクセルは角度を決めるので、速さを抑えるためにアクセルを緩めて角度が浅くならないよう、
+    // 加速をアクセルの量と切り離す。回る半径はスティックの量で決まるので、同じ弧のまま、その弧に合う速さまで速くなる。
     if (drifting && driftKicked_ && driftBoost > 0 && input.throttle > 0.05f && input.brake < 0.05f && travelSpeed > 1.0f) {
-        Vec3 along{body.velocity.x / travelSpeed, 0, body.velocity.z / travelSpeed};
-        pushForward(along, driftBoost * clampf(input.throttle, 0.0f, 1.0f), dt);
+        float radius = travelSpeed / std::max(std::fabs(pathRate_), kBoostMinPathRate);
+        float comfort = std::sqrt(driftComfortLat * radius);
+        float share = clampf((comfort - travelSpeed) / kBoostFadeSpeed, 0.0f, 1.0f);
+        if (share > 0) {
+            Vec3 along{body.velocity.x / travelSpeed, 0, body.velocity.z / travelSpeed};
+            pushForward(along, driftBoost * share, dt);
+        }
     }
 }
 

@@ -857,41 +857,59 @@ float hairpinRadius(float kmh, float& speedOut) {
     return speedOut / std::max(rate, 1e-3f);
 }
 
-// スティックを半分倒し、アクセル 0.8 でドリフトのまま 3 秒回る。後の 2 秒の平均の速さ（m/s）と、回った半径（m）。
-void arcRun(float kmh, float boost, float& speedOut, float& radiusOut) {
-    float prevHeading = 0, turned = 0, speedSum = 0;
+struct ArcResult {
+    float speed = 0;   // 後の 2 秒の平均の速さ（m/s）
+    float radius = 0;  // 回った半径（m）
+    float angle = 0;   // 平均の角度（rad）
+};
+
+// スティックを stick 倒し、アクセル 0.8 でドリフトのまま 3 秒回る（後の 2 秒を測る）。
+ArcResult arcRun(float kmh, float stick, float boost) {
+    float prevHeading = 0, turned = 0, speedSum = 0, angleSum = 0;
     int count = 0;
     driftScenario(kmh, 30 + 180,
                   [&](int step, DriveInput& input) {
                       (void)step;
                       input.throttle = 0.8f;
-                      input.steer = -0.5f;
+                      input.steer = -stick;
                   },
                   [&](int step, const Car& car) {
                       float heading = std::atan2(car.body.velocity.x, car.body.velocity.z);
                       if (step > 90) {
                           turned += wrapPi(heading - prevHeading);
                           speedSum += std::hypot(car.body.velocity.x, car.body.velocity.z);
+                          angleSum += std::fabs(car.driftAngle);
                           count++;
                       }
                       prevHeading = heading;
                   },
                   [&](Car& car) { car.driftBoost = boost; });
-    speedOut = speedSum / count;
-    radiusOut = speedOut / std::max(std::fabs(turned) / (count * kStep), 1e-3f);
+    ArcResult r;
+    r.speed = speedSum / count;
+    r.radius = r.speed / std::max(std::fabs(turned) / (count * kStep), 1e-3f);
+    r.angle = angleSum / count;
+    return r;
 }
 
-// ドリフト中の加速。同じスティックの量なら、加速があっても回る弧（半径）はほとんど変わらず、速く回れること。
+// ドリフト中の加速。アクセルを踏んだまま（角度を保ったまま）、同じ弧（半径）で速く回れること。
+// 速さはその弧に合う速さ（横の加速度 driftComfortLat で回れる速さ）までで止まり、きつい弧ほど遅く収まること。
 int driftBoostTest() {
-    for (float kmh : {60.0f, 80.0f}) {
-        float slowSpeed = 0, slowRadius = 0, fastSpeed = 0, fastRadius = 0;
-        arcRun(kmh, 0.0f, slowSpeed, slowRadius);
-        arcRun(kmh, 2.0f, fastSpeed, fastRadius);
-        std::printf("self-test drift boost %2.0f km/h: without %.0f km/h radius %.1f m, with %.0f km/h radius %.1f m\n", kmh,
-                    slowSpeed * 3.6f, slowRadius, fastSpeed * 3.6f, fastRadius);
-        // 加速ありで 5 km/h 以上速く、半径の差は 2 割以内。
-        if (fastSpeed - slowSpeed < 5.0f / 3.6f) return 38;
-        if (std::fabs(fastRadius - slowRadius) > 0.2f * slowRadius) return 39;
+    const float comfortLat = Car().driftComfortLat;
+    for (float stick : {0.4f, 1.0f}) {
+        ArcResult slow = arcRun(70.0f, stick, 0.0f);
+        ArcResult fast = arcRun(70.0f, stick, Car().driftBoost);
+        float comfort = std::sqrt(comfortLat * fast.radius);
+        std::printf("self-test drift boost stick %.1f: without %.0f km/h radius %.1f m angle %.0f deg, with %.0f km/h radius %.1f m"
+                    " angle %.0f deg (comfort %.0f km/h)\n",
+                    stick, slow.speed * 3.6f, slow.radius, slow.angle * 57.3f, fast.speed * 3.6f, fast.radius,
+                    fast.angle * 57.3f, comfort * 3.6f);
+        // 加速なしより速いか、すでに弧に合う速さにいる。半径の差は 2 割以内。
+        if (fast.speed < slow.speed - 0.5f) return 38;
+        if (fast.speed < comfort - 2.0f && fast.speed - slow.speed < 3.0f / 3.6f) return 38;
+        if (std::fabs(fast.radius - slow.radius) > 0.2f * slow.radius) return 39;
+        // 加速で、弧に合う速さを大きく越えない。アクセル 0.8 の角度（約 45°）は 3 割以上浅くならない。
+        if (fast.speed > std::max(comfort, slow.speed) + 3.0f) return 73;
+        if (fast.angle < slow.angle * 0.7f) return 74;
     }
     return 0;
 }
@@ -1269,12 +1287,11 @@ TougeDriveResult tougeDriveRun(const Track& track, bool verbose, float driftLat 
                 float rate = bend * travel + 2.0f * error;
                 float fullRate = std::max(car.driftCurveRate, travel / car.driftMinRadius);
                 input.steer = clampf(rate / fullRate, -1.0f, 1.0f);
-                // 角度はアクセルで決める。速すぎれば戻し、遅ければ踏む。
+                // 角度はアクセルで決めるので、アクセルは保つ（緩めると角度が浅くなる）。速さはブレーキで抑える
+                //（ブレーキではドリフトは切れない）。遅ければ踏み増す。
+                input.throttle = clampf(0.5f + (want - speed) * 0.05f, 0.5f, 0.85f);
                 if (speed > want + 2.0f) {
-                    input.throttle = 0.15f;
-                    input.brake = 0.3f;
-                } else {
-                    input.throttle = clampf(0.35f + (want - speed) * 0.08f, 0.2f, 0.85f);
+                    input.brake = clampf((speed - want - 2.0f) / 6.0f, 0.1f, 0.6f);
                 }
             }
             // 出口: 先にドリフトの曲がりがなければ、アクセルを緩めて角度を戻し、車体がまっすぐに近づいてから離す。

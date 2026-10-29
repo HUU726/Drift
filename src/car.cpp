@@ -24,7 +24,13 @@ constexpr float kSwitchHoldTime = 0.1f;   // 振り返し: 倒し続ける時間
 constexpr float kSwitchGain = 16.0f;      // 振り返し: 反対側の目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kSwitchDone = 0.17f;      // 振り返し: 反対側へこの角度（rad、約 10°）移ったら終える
 constexpr float kPathRateSmoothing = 0.1f;  // 曲がりの補助: 進む向きの回る速さをならす時間（秒）
-constexpr float kMaxCurveAccel = 20.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
+constexpr float kMaxCurveAccel = 26.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
+constexpr float kMaxKeepAccel = 14.0f;      // 速さの補助が出す前向きの加速度の上限（m/s²）
+constexpr float kAlignStart = 0.05f;       // ドリフト後の向きの補正: 道の向きとの差がこれ（rad、約 3°）より大きければ始める
+constexpr float kAlignDone = 0.01f;        // 差がこれ（rad）より小さくなるか、逆向きになったら終える
+constexpr float kAlignMaxTime = 2.5f;      // 長くてもこの時間（秒）で終える
+constexpr float kAlignGain = 30.0f;        // 差（rad）に掛ける角加速度（1/s²）
+constexpr float kAlignDamping = 0.5f;      // 進む向きに対する車体の回る速さ（rad/s）に掛ける角加速度（1/s）
 
 }  // namespace
 
@@ -40,6 +46,7 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     // 押し始めはサイドブレーキで後ろを流し、角度が driftEnterAngle を越えたらブレーキを外してアクセルで保つ。
     // ブレーキを踏んでも切れない（速さを落としながら角度を保てる）。
     bool held = driftAssist && input.handbrake && !airborne && angle < kDriftSpinAngle;
+    const bool wasDrifting = drifting && driftKicked_;
     if (!drifting) {
         drifting = held && speed > kDriftMinSpeed;
         driftKicked_ = false;
@@ -51,6 +58,31 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     }
     if (!drifting) {
         driftKicked_ = false;
+    }
+
+    // ドリフト後の向きの補正。ドリフトを抜けたとき（Space を離したとき）、車体の向きと道の向きの差を覚え、
+    // 車体を道の向きへ回す。車体が道の向きに届いたか通り越したら（差の向きが逆になったら）、次のドリフトまで補正しない。
+    // わざと通り越して次のドリフトに入る操作を邪魔しないため。
+    float roadError = ground.found ? wrapPi(ground.yaw - body.yaw) : 0.0f;
+    if (wasDrifting && !drifting && ground.found && std::fabs(roadError) > kAlignStart) {
+        aligning_ = true;
+        alignSide_ = roadError > 0 ? 1.0f : -1.0f;
+        alignTime_ = 0;
+    }
+    if (drifting || airborne || !ground.found) {
+        aligning_ = false;
+    }
+    if (aligning_) {
+        alignTime_ += dt;
+        if (roadError * alignSide_ <= kAlignDone || alignTime_ > kAlignMaxTime) {
+            aligning_ = false;
+        }
+    }
+    if (aligning_ && driftExitAlign > 0) {
+        // 差に比例して回し、進む向きに対する車体の回る速さで少しだけ抑える。通り越したら補正をやめるので、
+        // 抑えすぎると、かえって戻るのが遅くなる。
+        float accel = kAlignGain * roadError - kAlignDamping * (body.yawRate - pathRate_);
+        body.AddTorque(accel * driftExitAlign * body.inertiaYaw, 0, 0, dt);
     }
 
     // ドリフト中の後輪。普段の後輪の特性のまま、μ だけ前輪の driftRearGrip 倍にする。
@@ -120,6 +152,24 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         // 進む向きの右（ヨーが正の向きへ曲げる向き）。
         Vec3 right{velocity.z / length, 0, -velocity.x / length};
         body.AddForceAt(right * (lateralAccel * body.mass), body.position);
+    }
+
+    // 速さの補助。ドリフト中に落ちた速さを、driftSpeedKeep に応じて進む向きへ押し戻す。落ちた分だけを補い、
+    // 速くはしない。直前のステップの減り方を使う。サイドブレーキで向きを変えている間（いちばん速さが落ちる）は
+    // いつも補い、角度が付いた後はアクセルの踏み込みに応じて補う（アクセルを抜けば速さは落ちる）。
+    // ブレーキを踏んでいる間は補わない。
+    // 減り方は、直前に補った分を足し戻した、補わなかったときの減り方にする（補った分で減り方が小さく見えると、
+    // 補う量も減って効きが弱まる）。
+    float travelDecel = (prevTravelSpeed_ - travelSpeed) / dt + lastKeepAccel_;
+    prevTravelSpeed_ = travelSpeed;
+    lastKeepAccel_ = 0;
+    float keepShare = driftKicked_ ? clampf(input.throttle, 0.0f, 1.0f) : 1.0f;
+    if (drifting && driftSpeedKeep > 0 && keepShare > 0.05f && input.brake < 0.05f && travelSpeed > 1.0f &&
+        travelDecel > 0) {
+        float keep = std::min(travelDecel * driftSpeedKeep * keepShare, kMaxKeepAccel);
+        Vec3 along{body.velocity.x / travelSpeed, 0, body.velocity.z / travelSpeed};
+        body.AddForceAt(along * (keep * body.mass), body.position);
+        lastKeepAccel_ = keep;
     }
 }
 
@@ -230,6 +280,9 @@ void Car::Place(Vec3 origin, float yaw) {
     driftKicked_ = false;
     prevDriftAngle_ = 0;
     pathRate_ = 0;
+    prevTravelSpeed_ = 0;
+    lastKeepAccel_ = 0;
+    aligning_ = false;
     gripRecover_ = 1;
     switching_ = false;
     switchHold_ = 0;

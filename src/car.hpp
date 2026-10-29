@@ -74,6 +74,8 @@ struct Car {
     float ForwardSpeed() const { return body.ForwardSpeed(); }
     // 4 輪とも路面から離れているか
     bool Airborne() const;
+    // ドリフト後の向きの補正をしているか（道の向きを通り越すと、次のドリフトまで false）。
+    bool ExitAligning() const { return aligning_; }
     // 車の原点（車体の真下の地面の高さ）。描画とカメラの基準。重心から centerOfMassY 下
     Vec3 Origin() const;
     // 車輪の中心（車体の座標、原点から）。サスペンションの縮みを含む
@@ -100,8 +102,12 @@ struct Car {
     float driftAngleAssist = 1.0f;   // 角度を保つために車体を回す補助の強さ
     float driftMaxSteer = 0.96f;     // ドリフト中の逆ハンドルの最大の切れ角（rad、約 55°）
     // ドリフト中の曲がり。スティックを倒しきったときに、進む向きが回る速さ（rad/s）。倒す量に比例し、離すとまっすぐ。
-    float driftCurveRate = 0.9f;     // 約 52°/s
-    float driftMinRadius = 12.0f;    // 倒しきったときに回れる半径（m）。速いときは、この半径で回る速さまで曲げる
+    float driftCurveRate = 1.1f;     // 約 63°/s
+    float driftMinRadius = 10.0f;    // 倒しきったときに回れる半径（m）。速いときは、この半径で回る速さまで曲げる
+    // ドリフト中に落ちた速さを補う割合（0 で補わない、1 でアクセル全開なら落ちた分をすべて補う）
+    float driftSpeedKeep = 0.8f;
+    // ドリフトを抜けた後に、車体を道の向きへ戻す補正の強さ（0 で補正しない）。道の向きを通り越したら補正しない
+    float driftExitAlign = 1.0f;
     float driftCurveAssist = 6.0f;   // 曲がりをその速さへ寄せる補助の強さ（0 で補助なし、大きいほどその速さに近づく）
     // 状態
     bool drifting = false;
@@ -121,6 +127,11 @@ private:
     bool driftKicked_ = false;  // ドリフトに入ってから、サイドブレーキで向きを変え終えたか
     float prevDriftAngle_ = 0;
     float pathRate_ = 0;  // 進む向きの回る速さ（rad/s、ならしたもの）
+    float prevTravelSpeed_ = 0;  // 直前のステップの進む速さ（m/s）。速さの補助が減り方を求める
+    float lastKeepAccel_ = 0;    // 直前のステップに速さの補助で足した加速度（m/s²）
+    bool aligning_ = false;  // ドリフト後の向きの補正をしている
+    float alignSide_ = 0;    // 補正を始めたときの、道の向きとの差の向き（1 か -1）
+    float alignTime_ = 0;    // 補正を始めてからの時間（秒）
     float gripRecover_ = 1;  // ドリフトを抜けた後、後輪の μ が普段へ戻った割合（0..1）
     bool switching_ = false;  // 反対側のドリフトへ振り返している
     float switchHold_ = 0;    // スティックを反対へ倒し続けている時間（秒）

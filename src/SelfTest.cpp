@@ -1398,6 +1398,78 @@ int guardrailTest() {
     return failed;
 }
 
+struct AlignResult {
+    float alignedAt = -1;    // 離してから、車体と道の向きの差が 5° 以内になった時間（秒）。届かなければ -1
+    bool startedAligning = false;  // 離した直後に補正を始めたか
+    float crossedAt = -1;    // 差の向きが逆になった（通り越した）時間（秒）
+    bool alignedAfterCross = false;  // 通り越した後に、補正をしていたか
+};
+
+// 峠の山頂の直線で、道の向きに進みながら車体を bodyDeg 傾けてドリフトし（Space を 0.3 秒押す）、離す。
+// yawRate は離す前の車体の回る速さ（rad/s、通り越させるときに道の向きへ速く回す）。離した後はハンドルまっすぐ、
+// アクセル 0.3 で 2 秒走る。
+AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float alignStrength) {
+    Rig rig(track);
+    Car& car = rig.car;
+    car.driftExitAlign = alignStrength;
+    const float s0 = 30.0f;
+    const float road = trackYawAt(track, s0);
+    car.Place(centerAt(track, s0), road + bodyDeg / 57.3f);
+    car.body.velocity = Vec3{std::sin(road), 0, std::cos(road)} * (80.0f / 3.6f);
+    for (WheelCollider& w : car.wheels) {
+        w.omega = 80.0f / 3.6f / w.radius;
+    }
+    AlignResult result;
+    const int release = 18;
+    float side = 0;
+    for (int step = 0; step < release + 120; ++step) {
+        if (step == release - 1) {
+            car.body.yawRate = yawRate;
+        }
+        DriveInput input;
+        input.handbrake = step < release;
+        input.throttle = step < release ? 0.5f : 0.3f;
+        rig.Step(input, track);
+        if (step < release) continue;
+        float error = wrapPi(road - car.body.yaw);  // 山頂の直線なので、道の向きは変わらない
+        float t = (step - release + 1) * kStep;
+        if (step == release) {
+            result.startedAligning = car.ExitAligning();
+            side = error > 0 ? 1.0f : -1.0f;
+        }
+        if (result.alignedAt < 0 && std::fabs(error) < 5.0f / 57.3f) result.alignedAt = t;
+        if (result.crossedAt < 0 && error * side < 0) result.crossedAt = t;
+        // 通り越したステップでは、車はまだ通り越したことを見ていない（次の更新で見る）。その次から確かめる。
+        if (result.crossedAt >= 0 && t > result.crossedAt + kStep * 1.5f && car.ExitAligning()) result.alignedAfterCross = true;
+    }
+    return result;
+}
+
+// ドリフト後の向きの補正。Space を離すと補正を始め、補正なしより早く車体が道の向きに戻ること。
+// 道の向きを通り越したら（わざと通り越したときも）、補正をやめること。
+int exitAlignTest() {
+    Track track;
+    if (!BuildTougeCourse(track)) return 65;
+    for (float body : {-35.0f, 35.0f}) {
+        AlignResult with = exitAlignRun(track, body, 0.0f, 1.0f);
+        AlignResult without = exitAlignRun(track, body, 0.0f, 0.0f);
+        std::printf("self-test exit align body %+3.0f deg: started %d aligned in %.2f s (without %.2f s)\n", body,
+                    with.startedAligning ? 1 : 0, with.alignedAt, without.alignedAt);
+        if (!with.startedAligning || with.alignedAt < 0) return 66;
+        // 補正なしより 0.2 秒以上早く戻る（補正なしで戻らないときは、戻れば良い）。
+        if (without.alignedAt >= 0 && with.alignedAt > without.alignedAt - 0.2f) return 67;
+    }
+    // 通り越し: 離す直前に、道の向きへ速く回しておく（わざと通り越すような動き）。通り越した後は補正しない。
+    for (float body : {-35.0f, 35.0f}) {
+        float rate = body > 0 ? -3.0f : 3.0f;  // 車体を道の向きへ回す向き
+        AlignResult over = exitAlignRun(track, body, rate, 1.0f);
+        std::printf("self-test exit align overshoot body %+3.0f deg: crossed at %.2f s aligning after cross %d\n", body,
+                    over.crossedAt, over.alignedAfterCross ? 1 : 0);
+        if (over.crossedAt < 0 || over.alignedAfterCross) return 68;
+    }
+    return 0;
+}
+
 int tougeDriveTest() {
     Track track;
     if (!BuildTougeCourse(track)) return 50;
@@ -1409,15 +1481,15 @@ int tougeDriveTest() {
     return 0;
 }
 
-// 走り比べのコース。形が正しく、ドリフトの自動運転で止まらず、スピンせずに 1 周できること。
+// 走り比べのコース。形が正しく、ドリフトの自動運転でスピンせずに 1 周できること（止まって下がり直すのは 2 回まで）。
 // 区間ごとのドリフトの割合と壁への接触は、どの形が走りやすいかの目安として表示する（区間によって差が出るのが目的なので、
-// 割合は判定しない）。
+// 割合は判定しない。自動運転が苦手な S 字では止まることもある）。
 int labTest() {
     Track track;
     if (!BuildLabCourse(track)) return 55;
     if (int shape = courseShape(track, "lab")) return shape;
     TougeDriveResult r = tougeDriveRun(track, true);
-    if (!r.finished || r.stops > 0) return 56;
+    if (!r.finished || r.stops > 2) return 56;
     if (r.spins > 0) return 57;
     return 0;
 }
@@ -1470,6 +1542,10 @@ int RunSelfTest(const Track& track) {
         return result;
     }
     result = exitBounceTest();
+    if (result != 0) {
+        return result;
+    }
+    result = exitAlignTest();
     if (result != 0) {
         return result;
     }

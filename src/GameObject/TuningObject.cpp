@@ -115,6 +115,13 @@ void TuningObject::buildBasicItems() {
     add("DRIFT", {"DRIFT CURVE DEG/S", "drift_curve_deg_s", 0, 90, 1,
                   [&car] { return car.driftCurveRate * kRadToDeg; },
                   [&car](float v) { car.driftCurveRate = v / kRadToDeg; }});
+    // ドリフト中に落ちた速さを補う割合と、ドリフト後に車体を道の向きへ戻す補正の強さ。
+    add("DRIFT", {"DRIFT SPEED KEEP", "drift_speed_keep", 0, 1, 0.05f,
+                  [&car] { return car.driftSpeedKeep; },
+                  [&car](float v) { car.driftSpeedKeep = v; }});
+    add("DRIFT", {"DRIFT EXIT ALIGN", "drift_exit_align", 0, 3, 0.1f,
+                  [&car] { return car.driftExitAlign; },
+                  [&car](float v) { car.driftExitAlign = v; }});
     // 運転の補助（ABS、トラクションコントロール、空中の姿勢の補助、着地の補助）をまとめて切り替える。
     add("ASSISTS", {"DRIVING ASSISTS", "assists", 0, 1, 1,
                     [&car] { return car.wheels[0].antiLock ? 1.0f : 0.0f; },

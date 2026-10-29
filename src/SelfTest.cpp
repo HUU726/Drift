@@ -1085,6 +1085,8 @@ TougeDriveResult tougeDriveRun(const Track& track, bool verbose, float driftLat 
     bool holding = false;   // Space を押している
     float backing = 0;      // 壁から下がっている残りの時間（秒）
     float releaseWait = 0;  // 切り返しで Space を離している残りの時間（秒）
+    float holdDir = 0;      // Space を押したときに向かったコーナーの向き（右が 1）
+    bool kickedOnce = false;  // 押してから、一度ドリフトの角度が付いたか
     float stuck = 0;
     int cornerSteps = 0;
     int cornerDrift = 0;
@@ -1136,6 +1138,8 @@ TougeDriveResult tougeDriveRun(const Track& track, bool verbose, float driftLat 
         if (!holding && cornerAhead >= 0 && cornerLength >= 20.0f && speed > 10.0f && speed < kickSpeed + 3.0f &&
             releaseWait <= 0) {
             holding = true;
+            holdDir = curvature[cornerAhead] > 0 ? 1.0f : -1.0f;
+            kickedOnce = false;
         }
         releaseWait = std::max(0.0f, releaseWait - kStep);
         if (holding) {
@@ -1143,6 +1147,15 @@ TougeDriveResult tougeDriveRun(const Track& track, bool verbose, float driftLat 
             float angle = std::fabs(car.driftAngle);
             int ahead = sampleAt(track, pose.s + look);
             float bend = curvature[ahead];
+            if (angle > 0.21f) {
+                kickedOnce = true;
+            }
+            // 一度ドリフトした後、角度が戻ったところで逆向きのコーナーへ切り直すときは、いったん離して押し直す。
+            // 押したままアクセルを抜いて逆へ倒すと、振り返しの操作になる。
+            if (kickedOnce && angle < 0.21f && cornerAhead >= 0 && (curvature[cornerAhead] > 0 ? 1.0f : -1.0f) != holdDir) {
+                holding = false;
+                releaseWait = 0.15f;
+            }
             // 切り返し: 先の曲がりが今の滑りと逆向きなら、いったん離して押し直す（振り返し）。
             // 右へ滑る（角度が正）のは左のコーナー（曲がりが負）。
             float side = car.driftAngle > 0 ? -1.0f : 1.0f;

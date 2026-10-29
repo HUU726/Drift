@@ -15,7 +15,6 @@ constexpr float kMaxReverse = 9.0f;     // 後退の最高速度（m/s）。こ�
 constexpr float kDriftSteerRate = 6.0f;   // 逆ハンドルを切る速さ（rad/s）。遅いと滑りの向きの変化に追いつかない
 constexpr float kDriftMinSpeed = 8.0f;    // これより遅いとドリフトに入らない（m/s）。抜けるのはこの 6 割
 constexpr float kDriftSpinAngle = 1.45f;  // これを越えたらスピンとしてドリフトをやめる（rad、約 83°）
-constexpr float kDriftExitTime = 0.3f;    // 角度が小さいままこの時間が続いたら抜ける（秒）
 constexpr float kAngleGain = 10.0f;       // 角度の補助: 目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kAngleDamping = 4.0f;     // 角度の補助: 角度の変わる速さ（rad/s）に掛ける角加速度（1/s）
 
@@ -29,14 +28,20 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     prevDriftAngle_ = driftAngle;
     bool airborne = Airborne();
 
+    // ドリフトはサイドブレーキ（Space）を押している間だけ。離すと普段の車へ戻る。
+    // 押し始めはサイドブレーキで後ろを流し、角度が driftEnterAngle を越えたらブレーキを外してアクセルで保つ。
+    bool held = driftAssist && input.handbrake && !airborne && input.brake < 0.5f && angle < kDriftSpinAngle;
     if (!drifting) {
-        drifting = driftAssist && !airborne && speed > kDriftMinSpeed && angle > driftEnterAngle && input.brake < 0.5f;
-        driftExitTimer_ = 0;
+        drifting = held && speed > kDriftMinSpeed;
+        driftKicked_ = false;
     } else {
-        driftExitTimer_ = angle < driftExitAngle ? driftExitTimer_ + dt : 0.0f;
-        bool end = !driftAssist || speed < kDriftMinSpeed * 0.6f || driftExitTimer_ > kDriftExitTime ||
-                   angle > kDriftSpinAngle || input.brake > 0.5f;
-        drifting = !end;
+        drifting = held && speed > kDriftMinSpeed * 0.6f;
+    }
+    if (drifting && angle > driftEnterAngle) {
+        driftKicked_ = true;
+    }
+    if (!drifting) {
+        driftKicked_ = false;
     }
 
     // ドリフト中の後輪。普段の後輪の特性のまま、μ だけ前輪の driftRearGrip 倍にする。
@@ -45,7 +50,8 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
 
     // 角度の補助。アクセルを踏んでいる間は、踏み込みに応じた角度へ車体を回す（深すぎれば戻す）。
     // アクセルを離すと、角度の変わる速さだけを抑え、車が自然にまっすぐへ戻るのを待つ。
-    if (drifting && !airborne && driftAngleAssist > 0) {
+    // 向きを変えている間（ブレーキで流している間）は、どちらへ滑るかが決まっていないので補助しない。
+    if (drifting && driftKicked_ && driftAngleAssist > 0) {
         float side = driftAngle < 0 ? -1.0f : 1.0f;
         float accel = -kAngleDamping * side * angleRate;
         if (input.throttle > 0.05f) {
@@ -160,7 +166,7 @@ void Car::Place(Vec3 origin, float yaw) {
     brakeHold = 0;
     drifting = false;
     driftAngle = 0;
-    driftExitTimer_ = 0;
+    driftKicked_ = false;
     prevDriftAngle_ = 0;
     powertrain->Reset();
     airControl.Reset();
@@ -264,7 +270,8 @@ void Car::update(float dt, const DriveInput& input, const Track* track) {
         float brakeTorque = mass * brake * radius * 0.5f * (front ? brakeFrontShare : 1.0f - brakeFrontShare);
         // サイドブレーキは後輪だけに掛け、ABS を効かせずにロックさせる。掛けている間は駆動を切る（クラッチを切る）。
         // 切らないと、エンジンブレーキの分でトラクションコントロールが回転を保ち、ロックしない。
-        wheel.handbrake = !front && input.handbrake;
+        // ドリフト中は、向きが変わった（角度が入る角度を越えた）後はブレーキを外し、アクセルで角度を保つ。
+        wheel.handbrake = !front && input.handbrake && !(drifting && driftKicked_);
         if (wheel.handbrake) {
             brakeTorque += mass * handbrakeDecel * radius * 0.5f;
             driveTorque = 0;

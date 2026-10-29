@@ -88,12 +88,12 @@ struct Car {
     // ドリフト中の後輪。普段の後輪の特性を写し、μ だけ前輪の driftRearGrip 倍にする（update で毎回作り直す）。
     GripTire driftModeTire;
 
-    // ドリフト（D1 の単走のように、横を向いたまま滑り続ける）。後輪の横滑りが driftEnterAngle を越えると入り、
-    // その間は後輪のグリップを下げ、トラクションコントロールを切り、前輪は自動で逆ハンドルを当てる。
+    // ドリフト（D1 の単走のように、横を向いたまま滑り続ける）。サイドブレーキを押している間だけドリフトになり、
+    // 後輪のグリップを下げ、トラクションコントロールを切り、前輪は自動で逆ハンドルを当てる。押し始めはサイドブレーキで
+    // 後ろを流し、角度が driftEnterAngle を越えたらブレーキを外す。離すと普段の車へ戻る。
     // ハンドルの入力は行きたい向き、アクセルは角度の深さ（離すと driftMinAngle、全開で driftMaxAngle）になる。
     bool driftAssist = true;         // ドリフトの状態を使うか（切ると普段の車のまま）
-    float driftEnterAngle = 0.21f;   // 入る角度（rad、約 12°）。車体の滑りの角度（進む向きと車体の向きの差）
-    float driftExitAngle = 0.10f;    // この角度より小さい時間が続くと抜ける（rad、約 6°）
+    float driftEnterAngle = 0.21f;   // サイドブレーキを外す角度（rad、約 12°）。車体の滑りの角度（進む向きと車体の向きの差）
     float driftRearGrip = 0.8f;      // ドリフト中の後輪の μ / 前輪の μ
     float driftMinAngle = 0.35f;     // アクセルを離したときに保つ角度（rad、約 20°）
     float driftMaxAngle = 0.96f;     // アクセル全開で保つ角度（rad、約 55°）
@@ -114,7 +114,7 @@ private:
     void updateDrift(float dt, const DriveInput& input, float speed);
 
     bool rearDriftTires_ = false;
-    float driftExitTimer_ = 0;
+    bool driftKicked_ = false;  // ドリフトに入ってから、サイドブレーキで向きを変え終えたか
     float prevDriftAngle_ = 0;
 };
 

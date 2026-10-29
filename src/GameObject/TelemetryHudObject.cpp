@@ -71,7 +71,7 @@ void TelemetryHudObject::Draw2D(System::Renderer2D& hud) {
                      "AHEAD ASPHALT  RIGHT DIRT  LEFT RAMPS 5/10/15/20  FAR AHEAD S-CURVES",
                      0.9f, 0.92f, 0.94f, 1);
         hud.DrawText(24, float(hud.Height()) - 54, 1.7f,
-                     "SPACE HANDBRAKE  ESC MENU  R RESET  C CAMERA  P PAUSE  H HELP  TAB TUNING",
+                     "SPACE DRIFT  ESC MENU  R RESET  C CAMERA  P PAUSE  H HELP  TAB TUNING",
                      0.75f, 0.8f, 0.84f, 1);
     }
     if (scene_.Paused()) {

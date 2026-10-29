@@ -616,11 +616,11 @@ struct DriftResult {
     float maxAngle = 0;      // 最大（rad）
     bool heldAll = true;     // 保つ間ずっとドリフトの状態だったか
     float endSpeed = 0;      // 最後の速度（km/h）
-    bool endedStraight = false;  // アクセルを離した後、ドリフトを抜けたか
+    bool endedStraight = false;  // サイドブレーキとアクセルを離した後、ドリフトを抜けてまっすぐに戻ったか
 };
 
-// 速度 kmh から、左へハンドルを切りながら 0.5 秒サイドブレーキを掛けて向きを変え、
-// アクセル throttle、ハンドルはまっすぐで holdSeconds 保つ。その後アクセルを離して 3 秒待つ。
+// 速度 kmh から、左へハンドルを切りながらサイドブレーキを押して向きを変え（0.5 秒）、
+// サイドブレーキを押したまま、アクセル throttle、ハンドルはまっすぐで holdSeconds 保つ。その後すべて離して 3 秒待つ。
 DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) {
     CourseRig rig;
     rig.course.ground.baseMaterial = &Materials::kAsphalt;  // 平面の外へ出てもアスファルトで続ける
@@ -632,12 +632,14 @@ DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) 
     std::printf("self-test drift %3.0f km/h throttle %.1f steer %4.1f:", kmh, throttle, steer);
     for (int step = 0; step < hold + 180; ++step) {
         DriveInput input;
+        // ドリフトはサイドブレーキを押している間だけなので、保つ間も押し続ける。
         if (step < entry) {
             input.steer = -1;
             input.handbrake = true;
         } else if (step < hold) {
             input.throttle = throttle;
             input.steer = steer;
+            input.handbrake = true;
         }
         rig.Step(input);
         // 入ってから 1 秒後から、保てているかを見る。
@@ -660,7 +662,7 @@ DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) 
 }
 
 // ドリフトを保てること。サイドブレーキで向きを変えた後、アクセルを踏んだまま 4 秒、角度と速度を保ち、
-// アクセルを離すとまっすぐに戻ること。
+// サイドブレーキを離すとまっすぐに戻ること。
 int driftTest() {
     for (float kmh : {80.0f, 100.0f, 120.0f}) {
         for (float throttle : {0.5f, 1.0f}) {

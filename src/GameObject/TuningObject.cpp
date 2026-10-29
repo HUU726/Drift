@@ -260,7 +260,7 @@ void TuningObject::buildDetailItems() {
     add("DRIFT", {"DRIFT MODE", "drift_mode", 0, 1, 1,
                   [&car] { return car.driftAssist ? 1.0f : 0.0f; },
                   [&car](float v) { car.driftAssist = v > 0.5f; }, "OFF", "ON"});
-    add("DRIFT", {"DRIFT ENTER DEG", "drift_enter_deg", 5, 30, 1,
+    add("DRIFT", {"DRIFT KICK DEG", "drift_kick_deg", 5, 30, 1,
                   [&car] { return car.driftEnterAngle * kRadToDeg; },
                   [&car](float v) { car.driftEnterAngle = v / kRadToDeg; }});
     add("DRIFT", {"DRIFT MIN DEG", "drift_min_deg", 5, 45, 1,

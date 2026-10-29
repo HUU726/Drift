@@ -18,6 +18,10 @@ constexpr float kDriftSpinAngle = 1.45f;  // これを越えたらスピンと�
 constexpr float kAngleGain = 10.0f;       // 角度の補助: 目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kAngleDamping = 4.0f;     // 角度の補助: 角度の変わる速さ（rad/s）に掛ける角加速度（1/s）
 constexpr float kGripRecoverTime = 0.6f;  // ドリフトを抜けた後、後輪の μ を普段へ戻す時間（秒）
+constexpr float kSwitchStick = 0.6f;      // 振り返し: 反対へこれより大きく倒すと始める
+constexpr float kSwitchHoldTime = 0.1f;   // 振り返し: 倒し続ける時間（秒）。修正で一瞬倒したくらいでは始めない
+constexpr float kSwitchGain = 16.0f;      // 振り返し: 反対側の目標の角度との差（rad）に掛ける角加速度（1/s²）
+constexpr float kSwitchDone = 0.17f;      // 振り返し: 反対側へこの角度（rad、約 10°）移ったら終える
 constexpr float kPathRateSmoothing = 0.1f;  // 曲がりの補助: 進む向きの回る速さをならす時間（秒）
 constexpr float kMaxCurveAccel = 12.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
 
@@ -33,7 +37,8 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
 
     // ドリフトはサイドブレーキ（Space）を押している間だけ。離すと普段の車へ戻る。
     // 押し始めはサイドブレーキで後ろを流し、角度が driftEnterAngle を越えたらブレーキを外してアクセルで保つ。
-    bool held = driftAssist && input.handbrake && !airborne && input.brake < 0.5f && angle < kDriftSpinAngle;
+    // ブレーキを踏んでも切れない（速さを落としながら角度を保てる）。
+    bool held = driftAssist && input.handbrake && !airborne && angle < kDriftSpinAngle;
     if (!drifting) {
         drifting = held && speed > kDriftMinSpeed;
         driftKicked_ = false;
@@ -56,18 +61,40 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     driftModeTire.params = normal;
     driftModeTire.params.muScale = driftMu + (normal.muScale - driftMu) * gripRecover_;
 
+    // 振り返し。ドリフト中にスティックを今のコーナーと反対へ大きく倒し続けると、反対側のドリフトへ車体を振る。
+    // 右へ滑っている（角度が正）のは左のコーナーなので、反対へ倒すのは右（スティックが正）。
+    float side = driftAngle < 0 ? -1.0f : 1.0f;
+    if (!drifting || !driftKicked_) {
+        switching_ = false;
+        switchHold_ = 0;
+    } else if (!switching_) {
+        bool opposite = angle > driftEnterAngle && input.steer * side > kSwitchStick;
+        switchHold_ = opposite ? switchHold_ + dt : 0.0f;
+        if (switchHold_ > kSwitchHoldTime) {
+            switching_ = true;
+            switchSide_ = -side;
+        }
+    } else if (driftAngle * switchSide_ > kSwitchDone) {
+        // 反対側へ移り終えた。ここからは普段の角度の補助で保つ。
+        switching_ = false;
+        switchHold_ = 0;
+    }
+
     // 角度の補助。アクセルを踏んでいる間は、踏み込みに応じた角度へ車体を回す（深すぎれば戻す）。
     // アクセルを離すと、角度の変わる速さだけを抑え、車が自然にまっすぐへ戻るのを待つ。
     // 向きを変えている間（ブレーキで流している間）は、どちらへ滑るかが決まっていないので補助しない。
+    // 振り返しの間は、反対側の角度を目標に、強めに車体を回す。
     if (drifting && driftKicked_ && driftAngleAssist > 0) {
-        float side = driftAngle < 0 ? -1.0f : 1.0f;
-        float accel = -kAngleDamping * side * angleRate;
-        if (input.throttle > 0.05f) {
-            float target = driftMinAngle + (driftMaxAngle - driftMinAngle) * clampf(input.throttle, 0.0f, 1.0f);
-            accel += kAngleGain * (target - angle);
+        float target = driftMinAngle + (driftMaxAngle - driftMinAngle) * clampf(input.throttle, 0.0f, 1.0f);
+        // 角度を変える角加速度（右へ滑る向き = 角度が増える向きが正）。
+        float accel = -kAngleDamping * angleRate;
+        if (switching_) {
+            accel += kSwitchGain * (switchSide_ * target - driftAngle);
+        } else if (input.throttle > 0.05f) {
+            accel += kAngleGain * (side * target - driftAngle);
         }
-        // 角度を深くするには、滑る向きと逆へ車体を回す（右のコーナーでは右回り = ヨーが正）。
-        body.AddTorque(-side * accel * driftAngleAssist * body.inertiaYaw, 0, 0, dt);
+        // 角度を増やす（右へ滑らせる）には、車体を左へ回す（ヨーが負）。
+        body.AddTorque(-accel * driftAngleAssist * body.inertiaYaw, 0, 0, dt);
     }
 
     // 曲がりの補助。進む向きの回る速さ（車体のヨーレート + 角度の変わる速さ）を、スティックの倒す量 × driftCurveRate へ
@@ -193,6 +220,8 @@ void Car::Place(Vec3 origin, float yaw) {
     prevDriftAngle_ = 0;
     pathRate_ = 0;
     gripRecover_ = 1;
+    switching_ = false;
+    switchHold_ = 0;
     powertrain->Reset();
     airControl.Reset();
     ground = TrackPose{};

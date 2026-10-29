@@ -678,6 +678,115 @@ DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) 
 
 // ドリフトを保てること。サイドブレーキで向きを変えた後、アクセルを踏んだまま 4 秒、角度と速度を保ち、
 // サイドブレーキを離すとまっすぐに戻ること。
+// 平らな試験の地面で、kmh から左へサイドブレーキで向きを変え（0.5 秒）、その後は control(step, input) が
+// 決める入力で走る。Space は押したまま。ステップごとに observe(step) を呼ぶ。
+template <class Control, class Observe>
+void driftScenario(float kmh, int steps, Control control, Observe observe) {
+    CourseRig rig;
+    rig.course.ground.baseMaterial = &Materials::kAsphalt;
+    rig.Launch(0.0f, -40.0f, kmh / 3.6f);
+    for (int step = 0; step < steps; ++step) {
+        DriveInput input;
+        input.handbrake = true;
+        if (step < 30) {
+            input.steer = -1;
+        } else {
+            control(step, input);
+        }
+        rig.Step(input);
+        observe(step, rig.car);
+    }
+}
+
+// ドリフト中にブレーキを踏んでも、ドリフトが切れずにスピンせず、速さだけが落ちること。
+int driftBrakeTest() {
+    for (float brake : {0.4f, 0.7f, 1.0f}) {
+        const int brakeFrom = 120;
+        const int brakeTo = brakeFrom + 36;  // 0.6 秒
+        bool held = true;
+        float minAngle = 1e9f, maxAngle = 0;
+        float before = 0, after = 0;
+        driftScenario(80.0f, 300,
+                      [&](int step, DriveInput& input) {
+                          input.throttle = 0.7f;
+                          if (step >= brakeFrom && step < brakeTo) {
+                              input.throttle = 0;
+                              input.brake = brake;
+                          }
+                      },
+                      [&](int step, const Car& car) {
+                          if (step == brakeFrom - 1) before = car.ForwardSpeed() * 3.6f;
+                          if (step == brakeTo) after = car.ForwardSpeed() * 3.6f;
+                          if (step >= 90) {
+                              held = held && car.drifting;
+                              minAngle = std::min(minAngle, std::fabs(car.driftAngle));
+                              maxAngle = std::max(maxAngle, std::fabs(car.driftAngle));
+                          }
+                      });
+        std::printf("self-test drift brake %.1f: held %d angle %.0f..%.0f deg speed %.0f -> %.0f km/h\n", brake,
+                    held ? 1 : 0, minAngle * 57.3f, maxAngle * 57.3f, before, after);
+        // 切れず、角度は 10〜65° に収まり（スピンしない）、0.6 秒で 5 km/h 以上落ちる。
+        if (!held) return 28;
+        if (minAngle < 10.0f / 57.3f || maxAngle > 65.0f / 57.3f) return 29;
+        if (before - after < 5.0f) return 30;
+    }
+    return 0;
+}
+
+// Space を押したまま、スティックを反対へ倒すと、ドリフトのまま反対側へ振り返せること。
+// 1 回の振り返し（左のドリフトから右へ）と、直線で左右へ 4 回続けるマンジを試す。
+int driftSwitchTest() {
+    // 1 回: 左のドリフト（角度が正）を 1.5 秒保ち、右へいっぱいに倒す。
+    {
+        const int switchAt = 120;
+        int flipped = -1;
+        bool held = true;
+        float after = 0;
+        float maxAngle = 0;
+        driftScenario(80.0f, 330,
+                      [&](int step, DriveInput& input) {
+                          input.throttle = 0.6f;
+                          input.steer = step >= switchAt && step < switchAt + 60 ? 1.0f : 0.0f;
+                      },
+                      [&](int step, const Car& car) {
+                          if (step >= 90) held = held && car.drifting;
+                          if (step >= switchAt && flipped < 0 && car.driftAngle < -0.26f) flipped = step;
+                          if (step >= switchAt) maxAngle = std::max(maxAngle, std::fabs(car.driftAngle));
+                          if (step == 329) after = car.driftAngle;
+                      });
+        float seconds = flipped >= 0 ? (flipped - switchAt) * kStep : -1.0f;
+        std::printf("self-test drift switch: held %d flipped in %.2f s max %.0f deg end %.0f deg\n", held ? 1 : 0, seconds,
+                    maxAngle * 57.3f, after * 57.3f);
+        // 切れずに、1 秒以内に右へ 15° 以上移り、スピンせず、倒すのをやめた後も右のドリフトを保つ。
+        if (!held || flipped < 0 || seconds > 1.0f) return 31;
+        if (maxAngle > 70.0f / 57.3f || after > -0.17f) return 32;
+    }
+    // マンジ: 1.2 秒ごとに左右へ倒す。毎回、反対側へ移ること。
+    {
+        int switches = 0;
+        float prevSign = 1;
+        bool held = true;
+        float maxAngle = 0;
+        driftScenario(80.0f, 30 + 72 * 5,
+                      [&](int step, DriveInput& input) {
+                          input.throttle = 0.6f;
+                          int phase = (step - 30) / 72;
+                          input.steer = phase == 0 ? 0.0f : (phase % 2 ? 1.0f : -1.0f);
+                      },
+                      [&](int step, const Car& car) {
+                          if (step < 90) return;
+                          held = held && car.drifting;
+                          maxAngle = std::max(maxAngle, std::fabs(car.driftAngle));
+                          float sign = car.driftAngle > 0.17f ? 1.0f : (car.driftAngle < -0.17f ? -1.0f : prevSign);
+                          if (sign != prevSign) switches++;
+                          prevSign = sign;
+                      });
+        std::printf("self-test drift manji: held %d switches %d max %.0f deg\n", held ? 1 : 0, switches, maxAngle * 57.3f);
+        if (!held || switches < 4 || maxAngle > 70.0f / 57.3f) return 33;
+    }
+    return 0;
+}
+
 int driftTest() {
     for (float kmh : {80.0f, 100.0f, 120.0f}) {
         for (float throttle : {0.5f, 1.0f}) {
@@ -1205,6 +1314,14 @@ int RunSelfTest(const Track& track) {
         return result;
     }
     result = driftTest();
+    if (result != 0) {
+        return result;
+    }
+    result = driftBrakeTest();
+    if (result != 0) {
+        return result;
+    }
+    result = driftSwitchTest();
     if (result != 0) {
         return result;
     }

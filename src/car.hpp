@@ -121,6 +121,9 @@ private:
     float prevDriftAngle_ = 0;
     float pathRate_ = 0;  // 進む向きの回る速さ（rad/s、ならしたもの）
     float gripRecover_ = 1;  // ドリフトを抜けた後、後輪の μ が普段へ戻った割合（0..1）
+    bool switching_ = false;  // 反対側のドリフトへ振り返している
+    float switchHold_ = 0;    // スティックを反対へ倒し続けている時間（秒）
+    float switchSide_ = 0;    // 振り返す先の角度の向き（1 か -1）
 };
 
 void buildCarBody(CpuMesh& mesh);

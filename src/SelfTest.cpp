@@ -943,9 +943,8 @@ Vec3 centerAt(const Track& track, float s) {
 }
 
 // 峠のコース。形（つながっている、道どうしが近づきすぎない、急すぎない）と、自動運転で 1 周走れることを確かめる。
-int tougeTest() {
-    Track track;
-    if (!BuildTougeCourse(track)) return 40;
+// 作ったコースの形を確かめる（点の間隔、勾配、道どうしが近づきすぎないこと）。0 なら成功、それ以外は失敗の番号。
+int courseShape(const Track& track, const char* label) {
     const int n = static_cast<int>(track.samples.size());
     float maxGrade = 0;
     float maxGap = 0;
@@ -965,11 +964,19 @@ int tougeTest() {
             minClearance = std::min(minClearance, std::sqrt((c.x - a.x) * (c.x - a.x) + (c.z - a.z) * (c.z - a.z)));
         }
     }
-    std::printf("self-test touge length %.0f samples %d max gap %.1f m max grade %.1f%% min clearance %.1f m\n",
+    std::printf("self-test %s length %.0f samples %d max gap %.1f m max grade %.1f%% min clearance %.1f m\n", label,
                 track.length, n, maxGap, maxGrade * 100.0f, minClearance);
     if (maxGap > 6.0f) return 41;
     if (maxGrade > 0.11f) return 42;
     if (minClearance < 2.0f * track.wallLateral() + 2.0f) return 43;
+    return 0;
+}
+
+int tougeTest() {
+    Track track;
+    if (!BuildTougeCourse(track)) return 40;
+    if (int shape = courseShape(track, "touge")) return shape;
+    const int n = static_cast<int>(track.samples.size());
 
     // 曲がりの半径から出せる速さ（横の加速度 10 m/s²）を決め、止まれる減速（7 m/s²）で手前から下げる。
     std::vector<float> limit(n);
@@ -1402,6 +1409,19 @@ int tougeDriveTest() {
     return 0;
 }
 
+// 走り比べのコース。形が正しく、ドリフトの自動運転で止まらず、スピンせずに 1 周できること。
+// 区間ごとのドリフトの割合と壁への接触は、どの形が走りやすいかの目安として表示する（区間によって差が出るのが目的なので、
+// 割合は判定しない）。
+int labTest() {
+    Track track;
+    if (!BuildLabCourse(track)) return 55;
+    if (int shape = courseShape(track, "lab")) return shape;
+    TougeDriveResult r = tougeDriveRun(track, true);
+    if (!r.finished || r.stops > 0) return 56;
+    if (r.spins > 0) return 57;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -1469,5 +1489,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return guardrailTest();
+    result = guardrailTest();
+    if (result != 0) {
+        return result;
+    }
+    return labTest();
 }

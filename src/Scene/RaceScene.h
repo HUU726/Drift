@@ -1,5 +1,6 @@
 #pragma once
 
+#include "GameObject/TrackObject.h"
 #include "Scene/Scene.h"
 
 class CameraObject;
@@ -18,7 +19,7 @@ protected:
     void OnStartUpdate(float dt) override;
     void GetView(Mat4& viewProj, Vec3& eye) const override;
 
-    bool touge_ = false;  // 鈴鹿の代わりに峠のコースを走る（ジャンプ台は置かない）
+    TrackObject::Course course_ = TrackObject::Course::Suzuka;  // 走るコース。鈴鹿のときだけジャンプ台を置く
 
 private:
     CarObject* car_ = nullptr;
@@ -30,5 +31,11 @@ private:
 // 峠。山頂から下ってヘアピンを抜け、谷から登って戻る 1 周を、レースと同じ HUD とラップ計測で走る。
 class TougeScene : public RaceScene {
 public:
-    explicit TougeScene(System::Context& ctx) : RaceScene(ctx) { touge_ = true; }
+    explicit TougeScene(System::Context& ctx) : RaceScene(ctx) { course_ = TrackObject::Course::Touge; }
+};
+
+// 走り比べ。形の違う S 字とヘアピンを並べた平らな 1 周を走り、どの形がよいかを決める。区間の名前が HUD に出る。
+class LabScene : public RaceScene {
+public:
+    explicit LabScene(System::Context& ctx) : RaceScene(ctx) { course_ = TrackObject::Course::Lab; }
 };

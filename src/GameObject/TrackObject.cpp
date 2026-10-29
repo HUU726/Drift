@@ -24,9 +24,10 @@ std::string TrackObject::FindPath() {
 }
 
 bool TrackObject::Init() {
-    if (which_ == Course::Touge) {
-        if (!BuildTougeCourse(track_)) {
-            std::fprintf(stderr, "峠のコースを作れません\n");
+    if (which_ == Course::Touge || which_ == Course::Lab) {
+        bool built = which_ == Course::Touge ? BuildTougeCourse(track_) : BuildLabCourse(track_);
+        if (!built) {
+            std::fprintf(stderr, "コースを作れません\n");
             return false;
         }
     } else {

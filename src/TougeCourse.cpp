@@ -77,10 +77,18 @@ void rightOf(float yaw, float& rx, float& rz) {
     rz = -std::sin(yaw);
 }
 
+// 始点へ戻る区間の名前と番号。first / last は 2 つの右の円弧、straight はその間の直線、runUp は最後の直線。
+struct CloseNames {
+    int firstCorner, firstName;
+    int straightName;
+    int lastCorner, lastName;
+    int runUpName;
+};
+
 // (x, z) を向き yaw で出て、始点（原点）に北向きで戻る区間。右の円弧 → 直線 → 右の円弧（半径 radius）で
 // 原点の runUp m 手前に北向きで着き、平らな直線（山頂の直線の手前側。スタート地点を置く）で原点へ入る。
 // 高さは、直線の手前までの勾配で原点の高さ（0）に戻す。
-std::vector<Piece> closeLoop(float x, float z, float y, float yaw, float radius, float runUp) {
+std::vector<Piece> closeLoop(float x, float z, float y, float yaw, float radius, float runUp, const CloseNames& names) {
     float rx, rz;
     rightOf(yaw, rx, rz);
     float c1x = x + rx * radius;
@@ -95,7 +103,9 @@ std::vector<Piece> closeLoop(float x, float z, float y, float yaw, float radius,
     };
     float first = positive(heading - yaw) * 180.0f / kPi;
     float second = positive(-heading) * 180.0f / kPi;
-    std::vector<Piece> pieces = {arc(radius, first, 0, 15, 15), straight(length, 0, 16), arc(radius, second, 0, 16, 16)};
+    std::vector<Piece> pieces = {arc(radius, first, 0, names.firstCorner, names.firstName),
+                                 straight(length, 0, names.straightName),
+                                 arc(radius, second, 0, names.lastCorner, names.lastName)};
     float total = 0;
     for (const Piece& piece : pieces) {
         total += piece.length;
@@ -103,20 +113,19 @@ std::vector<Piece> closeLoop(float x, float z, float y, float yaw, float radius,
     for (Piece& piece : pieces) {
         piece.grade = -y / total;
     }
-    pieces.push_back(straight(runUp, 0.0f, 0));
+    pieces.push_back(straight(runUp, 0.0f, names.runUpName));
     return pieces;
 }
 
-}  // namespace
-
-bool BuildTougeCourse(Track& track) {
-    // 中心線を進める。山頂の高さを 0 とし、北（+z）へ向かって出る。
+// 区間を順に置いて中心線を作り、始点へ戻る区間を足して 1 周にし、峠の見た目で Track を作る。
+// 山頂（原点）の高さを 0 とし、北（+z）へ向かって出る。
+bool buildCourse(Track& track, std::vector<Piece> pieces, const CloseNames& closeNames, const char* const* names,
+                 int nameCount) {
     track.samples.clear();
     float x = 0;
     float z = 0;
     float y = 0;
     float yaw = 0;
-    std::vector<Piece> pieces = layout();
     const size_t designed = pieces.size();
     for (size_t index = 0; index < pieces.size(); ++index) {
         const Piece piece = pieces[index];
@@ -142,7 +151,7 @@ bool BuildTougeCourse(Track& track) {
         }
         // 決めた区間を置き終えたら、残りは始点へ戻る区間を計算して足す。
         if (index + 1 == designed) {
-            std::vector<Piece> back = closeLoop(x, z, y, yaw, 60.0f, 25.0f);
+            std::vector<Piece> back = closeLoop(x, z, y, yaw, 60.0f, 25.0f, closeNames);
             pieces.insert(pieces.end(), back.begin(), back.end());
         }
     }
@@ -176,7 +185,7 @@ bool BuildTougeCourse(Track& track) {
         }
     }
 
-    track.names.assign(std::begin(kNames), std::end(kNames));
+    track.names.assign(names, names + nameCount);
     track.halfWidth = 4.5f;   // 片側 1 車線ずつの 9 m。ドリフトで横を向いても収まる幅
     track.curbWidth = 0.5f;   // 側溝
     track.runoff = 1.5f;      // 砂利の路肩。その外はガードレール
@@ -191,4 +200,57 @@ bool BuildTougeCourse(Track& track) {
     track.spawnY = a.y;
     track.spawnYaw = std::atan2(b.x - a.x, b.z - a.z);
     return track.build();
+}
+
+// 走り比べのコース。S 字とヘアピンを形を変えて並べ、どれが走って面白いかを決める。区間の名前が HUD に出る。
+// 北へ: S-A, S-B, S-C → 右へ大きく回って南へ: ヘアピン H-A, H-B, H-C → S-D, S-E → ヘアピン H-D, H-E → 始点へ戻る。
+// 区間の間には 100〜120 m の直線を入れ、毎回同じくらいの速さで入れるようにする。平ら（勾配 0）。
+const char* const kLabNames[] = {
+    "START STRAIGHT",     "S-A R40 GAP 15",  "S-B R40 GAP 35",      "S-C R60 GAP 25",
+    "U TURN",             "H-A HAIRPIN R15", "H-B HAIRPIN R20",     "H-C HAIRPIN R12",
+    "S-D R30 GAP 20",     "S-E TRIPLE R40",  "H-D DOUBLE APEX R25", "H-E OPEN HAIRPIN R25",
+    "STRAIGHT",           "RETURN",
+};
+
+std::vector<Piece> labLayout() {
+    const int kStraight = 12;
+    // S 字は向きを交互にして、横へのずれを打ち消す。ヘアピンは左右 1 組で、向きは元に戻る。
+    return {
+        straight(120, 0, 0),
+        arc(40, 70, 0, 1, 1), straight(15, 0, 1), arc(40, -70, 0, 1, 1),
+        straight(120, 0, kStraight),
+        arc(40, -70, 0, 2, 2), straight(35, 0, 2), arc(40, 70, 0, 2, 2),
+        straight(120, 0, kStraight),
+        arc(60, 60, 0, 3, 3), straight(25, 0, 3), arc(60, -60, 0, 3, 3),
+        straight(100, 0, kStraight),
+        arc(35, 90, 0, 4, 4), straight(150, 0, 4), arc(35, 90, 0, 4, 4),
+        straight(100, 0, kStraight),
+        arc(15, -180, 0, 5, 5), straight(40, 0, 5), arc(15, 180, 0, 5, 5),
+        straight(100, 0, kStraight),
+        arc(20, -180, 0, 6, 6), straight(40, 0, 6), arc(20, 180, 0, 6, 6),
+        straight(100, 0, kStraight),
+        arc(12, -180, 0, 7, 7), straight(40, 0, 7), arc(12, 180, 0, 7, 7),
+        straight(120, 0, kStraight),
+        arc(30, 80, 0, 8, 8), straight(20, 0, 8), arc(30, -80, 0, 8, 8),
+        straight(120, 0, kStraight),
+        arc(40, -60, 0, 9, 9), straight(20, 0, 9), arc(40, 120, 0, 9, 9), straight(20, 0, 9), arc(40, -60, 0, 9, 9),
+        straight(100, 0, kStraight),
+        arc(25, -90, 0, 10, 10), straight(20, 0, 10), arc(25, -90, 0, 10, 10), straight(40, 0, 10),
+        arc(25, 90, 0, 10, 10), straight(20, 0, 10), arc(25, 90, 0, 10, 10),
+        straight(100, 0, kStraight),
+        arc(25, -150, 0, 11, 11), straight(40, 0, 11), arc(25, 150, 0, 11, 11),
+        straight(100, 0, kStraight),
+    };
+}
+
+}  // namespace
+
+bool BuildTougeCourse(Track& track) {
+    const CloseNames close{15, 15, 16, 16, 16, 0};
+    return buildCourse(track, layout(), close, kNames, static_cast<int>(std::size(kNames)));
+}
+
+bool BuildLabCourse(Track& track) {
+    const CloseNames close{12, 13, 13, 13, 13, 0};
+    return buildCourse(track, labLayout(), close, kLabNames, static_cast<int>(std::size(kLabNames)));
 }

@@ -14,9 +14,8 @@
 
 bool RaceScene::Init() {
     TrackObject* track = Add<TrackObject>();
-    if (touge_) {
-        track->SetCourse(TrackObject::Course::Touge);
-    } else {
+    track->SetCourse(course_);
+    if (course_ == TrackObject::Course::Suzuka) {
         Add<RampObject>();
     }
     car_ = Add<CarObject>();

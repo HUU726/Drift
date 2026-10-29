@@ -14,6 +14,7 @@ bool SceneSelectObject::Init() {
     entries_ = {
         {"RACE", "LAP THE CIRCUIT", [&scenes] { scenes.Change<RaceScene>(); }},
         {"TOUGE", "MOUNTAIN PASS  HAIRPINS AND SWEEPERS FOR DRIFTING", [&scenes] { scenes.Change<TougeScene>(); }},
+        {"COURSE LAB", "COMPARE S CURVES AND HAIRPINS  (NAMES SHOW ON THE HUD)", [&scenes] { scenes.Change<LabScene>(); }},
         {"TEST COURSE", "DEBUG AND TUNE THE CAR  (TAB TUNING)", [&scenes] { scenes.Change<TestScene>(); }},
     };
     if (selected_ >= static_cast<int>(entries_.size())) {

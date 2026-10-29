@@ -1,10 +1,12 @@
 #include "GameObject/TuningObject.h"
 
 #include "GameObject/CarObject.h"
+#include "Physics/PhysicsMaterial.h"
 #include "Scene/Scene.h"
 #include "System/Context.h"
 #include "System/Input.h"
 #include "System/Renderer2D.h"
+#include "Vehicle/VehicleSpec.h"
 
 #include <SDL.h>
 
@@ -27,11 +29,96 @@ bool TuningObject::Init() {
     if (!car_) {
         return false;
     }
-    buildItems();
+    buildBasicItems();
+    buildDetailItems();
     return true;
 }
 
-void TuningObject::buildItems() {
+void TuningObject::buildBasicItems() {
+    Car& car = car_->MutableCar();
+    // 摩擦係数は舗装路での値（路面の μ × タイヤの倍率）で出す。ダートや芝では路面の μ の比で下がる。
+    const float roadMu = Materials::kAsphalt.friction;
+    // 後輪は、今使っているほう（グリップ用かドリフト用）の値を変える。
+    auto rear = [&car]() -> TireParams& {
+        return car.RearDriftTires() ? car.rearDriftTire.params : car.rearGripTire.params;
+    };
+    auto forEachWheel = [&car](const std::function<void(WheelCollider&)>& apply) {
+        for (WheelCollider& w : car.wheels) {
+            apply(w);
+        }
+    };
+    auto add = [this](const char* category, Item item) {
+        item.category = category;
+        basicItems_.push_back(item);
+    };
+
+    // 車体
+    add("BODY", {"MASS KG", "mass", 800, 2000, 20,
+                 [&car] { return car.mass; },
+                 [&car](float v) { car.SetMass(v); }});
+    add("BODY", {"ROTATION INERTIA X", "inertia_scale", 0.5f, 2.0f, 0.05f,
+                 [&car] { return car.inertiaScale; },
+                 [&car](float v) { car.SetInertiaScale(v); }});
+    add("BODY", {"CENTER OF MASS M", "center_of_mass_y", 0.25f, 0.80f, 0.01f,
+                 [&car] { return car.centerOfMassY; },
+                 [&car](float v) { car.SetCenterOfMassY(v); }});
+    // 足の硬さ。減衰は減衰比が変わらないように √(ばね) に、スタビライザーはばねに比例させる。
+    add("BODY", {"SPRING N/M", "spring", 10000, 80000, 1000,
+                 [&car] { return car.wheels[Car::kFrontLeft].springRate; },
+                 [&car](float v) {
+                     float ratio = v / VehicleSpec::kSpringRate;
+                     for (int i = 0; i < Car::kWheelCount; ++i) {
+                         WheelCollider& w = car.wheels[i];
+                         w.springRate = v;
+                         w.damping = VehicleSpec::kDamping * std::sqrt(ratio);
+                         w.antiRollRate = (i < Car::kRearLeft ? VehicleSpec::kFrontAntiRoll : VehicleSpec::kRearAntiRoll) * ratio;
+                     }
+                 }});
+    add("BODY", {"ENGINE POWER KW", "engine_power_kw", 100, 600, 10,
+                 [&car] { return car.engine.torqueScale * EnginePowertrain::PeakPowerKw(); },
+                 [&car](float v) { car.engine.torqueScale = v / EnginePowertrain::PeakPowerKw(); }});
+    add("BODY", {"BRAKE M/S2", "brake_decel", 5, 40, 1,
+                 [&car] { return car.brakeDecel; },
+                 [&car](float v) { car.brakeDecel = v; }});
+    // タイヤ。前輪を基準に、後輪は前後の配分を掛けた値にする。
+    add("TIRES", {"STATIC FRICTION", "static_friction", 0.5f, 3.0f, 0.05f,
+                  [&car, roadMu] { return car.frontTire.params.muScale * roadMu; },
+                  [&car, rear, roadMu](float v) {
+                      // 前後の配分と動摩擦の値はそのまま保つ（動摩擦が静止摩擦を超えるときは同じ値まで下げる）。
+                      TireParams& front = car.frontTire.params;
+                      float balance = rear().muScale / front.muScale;
+                      float sliding = front.slideRatio * front.muScale * roadMu;
+                      front.muScale = v / roadMu;
+                      rear().muScale = front.muScale * balance;
+                      front.slideRatio = std::min(1.0f, sliding / v);
+                      rear().slideRatio = front.slideRatio;
+                  }});
+    // 動摩擦は静止摩擦との比（滑りきったときの力 / ピークの力）として持つので、静止摩擦を超えられない。
+    add("TIRES", {"SLIDING FRICTION", "sliding_friction", 0.2f, 3.0f, 0.05f,
+                  [&car, roadMu] { return car.frontTire.params.slideRatio * car.frontTire.params.muScale * roadMu; },
+                  [&car, rear, roadMu](float v) {
+                      float ratio = clampf(v / (car.frontTire.params.muScale * roadMu), 0.1f, 1.0f);
+                      car.frontTire.params.slideRatio = ratio;
+                      rear().slideRatio = ratio;
+                  }});
+    add("TIRES", {"REAR/FRONT GRIP", "grip_balance", 0.6f, 1.4f, 0.02f,
+                  [&car, rear] { return rear().muScale / car.frontTire.params.muScale; },
+                  [&car, rear](float v) { rear().muScale = car.frontTire.params.muScale * v; }});
+    // 運転の補助（ABS、トラクションコントロール、空中の姿勢の補助、着地の補助）をまとめて切り替える。
+    add("ASSISTS", {"DRIVING ASSISTS", "assists", 0, 1, 1,
+                    [&car] { return car.wheels[0].antiLock ? 1.0f : 0.0f; },
+                    [&car, forEachWheel](float v) {
+                        bool on = v > 0.5f;
+                        forEachWheel([on](WheelCollider& w) {
+                            w.antiLock = on;
+                            w.tractionControl = on;
+                        });
+                        car.airControl.enabled = on;
+                        car.airControl.landingAssist = on;
+                    }, "OFF", "ON"});
+}
+
+void TuningObject::buildDetailItems() {
     Car& car = car_->MutableCar();
     // 後輪は、今使っているほう（グリップ用かドリフト用）の値を変える。
     auto rear = [&car]() -> TireParams& {
@@ -43,7 +130,7 @@ void TuningObject::buildItems() {
         }
     };
 
-    items_ = {
+    detailItems_ = {
         // タイヤ
         {"FRONT GRIP X", "front_mu_scale", 0.5f, 3.0f, 0.05f,
          [&car] { return car.frontTire.params.muScale; },
@@ -83,13 +170,13 @@ void TuningObject::buildItems() {
          [&car] { return car.airControl.landingAssist ? 1.0f : 0.0f; },
          [&car](float v) { car.airControl.landingAssist = v > 0.5f; }, "OFF", "ON"},
     };
-    for (size_t i = 0; i < items_.size(); ++i) {
-        items_[i].category = i < 6 ? "TIRES" : "ASSISTS";
+    for (size_t i = 0; i < detailItems_.size(); ++i) {
+        detailItems_[i].category = i < 6 ? "TIRES" : "ASSISTS";
     }
 
     auto add = [this](const char* category, Item item) {
         item.category = category;
-        items_.push_back(item);
+        detailItems_.push_back(item);
     };
     // 前輪と後輪のどちらかの 2 本に同じ値を入れる。
     auto axle = [&car](bool front, const std::function<void(WheelCollider&)>& apply) {
@@ -177,10 +264,15 @@ void TuningObject::StartUpdate(float dt) {
         open_ = !open_;
         input.SetMenuMode(open_);
     }
-    if (!open_ || items_.empty()) {
+    if (!open_ || items().empty()) {
         return;
     }
-    const int count = static_cast<int>(items_.size());
+    if (input.Pressed(System::Action::MenuDetail)) {
+        detail_ = !detail_;
+        selected_ = 0;
+        firstVisible_ = 0;
+    }
+    const int count = static_cast<int>(items().size());
     // 押した回数だけ動かす。フレームの間に何度も押しても取りこぼさない。
     int move = input.PressCount(System::Action::MenuDown) - input.PressCount(System::Action::MenuUp);
     selected_ = ((selected_ + move) % count + count) % count;
@@ -192,7 +284,7 @@ void TuningObject::StartUpdate(float dt) {
     }
     int direction = input.PressCount(System::Action::MenuRight) - input.PressCount(System::Action::MenuLeft);
     if (direction != 0) {
-        Item& item = items_[selected_];
+        Item& item = items()[selected_];
         float value = item.get() + item.step * float(direction);
         // 刻みの倍数に丸めて、足し算の誤差がたまらないようにする。
         value = std::round(value / item.step) * item.step;
@@ -205,12 +297,15 @@ void TuningObject::StartUpdate(float dt) {
 
 void TuningObject::exportValues() {
     // ブラウザ版ではファイルがページの中に閉じるので、同じ内容をログ（ブラウザのコンソール）にも出す。
+    // 基本の項目と細かい項目の両方を書く（基本の項目が細かい項目を動かすので、どちらも今の車の値）。
     std::ofstream out(kExportPath);
-    for (const Item& item : items_) {
-        char line[96];
-        std::snprintf(line, sizeof(line), "%s %.4f", item.key, item.get());
-        out << line << '\n';
-        SDL_Log("tuning %s", line);
+    for (const std::vector<Item>* list : {&basicItems_, &detailItems_}) {
+        for (const Item& item : *list) {
+            char line[96];
+            std::snprintf(line, sizeof(line), "%s %.4f", item.key, item.get());
+            out << line << '\n';
+            SDL_Log("tuning %s", line);
+        }
     }
     message_ = out ? "SAVED TUNING.TXT" : "SAVE FAILED";
     messageTime_ = kMessageSeconds;
@@ -222,7 +317,7 @@ void TuningObject::Draw2D(System::Renderer2D& hud) {
     const float width = 520.0f;
     const float x0 = 24.0f;
     const float y0 = 246.0f;
-    const int visibleRows = std::min<int>(kVisibleRows, static_cast<int>(items_.size()));
+    const int visibleRows = std::min<int>(kVisibleRows, static_cast<int>(items().size()));
     const float height = rowHeight * (float(visibleRows) + 2.0f) + 12.0f;
     if (messageTime_ > 0) {
         hud.DrawText(x0, y0 + (open_ ? height + 8 : 0), 2.0f, message_.c_str(), 0.95f, 0.85f, 0.4f, 1);
@@ -233,11 +328,12 @@ void TuningObject::Draw2D(System::Renderer2D& hud) {
     hud.AddQuad(x0, y0, x0 + width, y0 + height, 0.02f, 0.03f, 0.05f, 0.82f);
     // 見出し: 選んでいる項目の分類と、何番目か。下に操作の説明。
     char title[96];
-    std::snprintf(title, sizeof(title), "TUNING  %s  %d/%d", items_[selected_].category, selected_ + 1,
-                  static_cast<int>(items_.size()));
+    std::snprintf(title, sizeof(title), "TUNING %s  %s  %d/%d", detail_ ? "DETAIL" : "BASIC", items()[selected_].category, selected_ + 1,
+                  static_cast<int>(items().size()));
     hud.DrawText(x0 + 12, y0 + 8, 1.8f, title, 0.95f, 0.8f, 0.35f, 1);
     hud.DrawText(x0 + 12, y0 + 8 + rowHeight * float(visibleRows + 1) + 6, 1.6f,
-                 "UP/DOWN SELECT  LEFT/RIGHT CHANGE  E SAVE  TAB CLOSE", 0.75f, 0.8f, 0.84f, 1);
+                 detail_ ? "UP/DOWN  LEFT/RIGHT  F BASIC  E SAVE  TAB CLOSE" : "UP/DOWN  LEFT/RIGHT  F DETAIL  E SAVE  TAB CLOSE",
+                 0.75f, 0.8f, 0.84f, 1);
     for (int row = 0; row < visibleRows; ++row) {
         size_t i = static_cast<size_t>(firstVisible_ + row);
         float y = y0 + 8 + rowHeight * float(row + 1) + 6;
@@ -246,8 +342,8 @@ void TuningObject::Draw2D(System::Renderer2D& hud) {
             hud.AddQuad(x0 + 6, y - 4, x0 + width - 6, y + rowHeight - 6, 0.25f, 0.32f, 0.45f, 0.9f);
         }
         float shade = selected ? 1.0f : 0.82f;
-        hud.DrawText(x0 + 14, y, 1.8f, items_[i].label, shade, shade, shade, 1);
-        hud.DrawText(x0 + 380, y, 1.8f, valueText(items_[i]).c_str(), shade, selected ? 0.9f : 0.82f, selected ? 0.5f : 0.82f, 1);
+        hud.DrawText(x0 + 14, y, 1.8f, items()[i].label, shade, shade, shade, 1);
+        hud.DrawText(x0 + 380, y, 1.8f, valueText(items()[i]).c_str(), shade, selected ? 0.9f : 0.82f, selected ? 0.5f : 0.82f, 1);
     }
 }
 

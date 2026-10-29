@@ -41,6 +41,7 @@ struct Car {
     float mass = VehicleSpec::kMass;
     float dragPerMass = VehicleSpec::kDrag;
     float centerOfMassY = VehicleSpec::kCenterOfMassY;  // 原点から重心までの高さ
+    float inertiaScale = 1.0f;       // 慣性モーメント（回りにくさ）の倍率。質量に比例した値にさらに掛ける
 
     // 真下の路面を調べる関数（x, z, レイの始点の高さ, 直前の周回位置）。空中姿勢制御の着地補助が使う。
     // CarObject と self-test が ColliderManager::GroundAt を渡す。なければ着地補助は効かない。
@@ -63,6 +64,7 @@ struct Car {
     void SetMass(float newMass);
     void SetDrag(float perMass);
     void SetCenterOfMassY(float height);
+    void SetInertiaScale(float scale);
     const IPowertrain& Powertrain() const { return *powertrain; }
     // 前向きの速度（m/s）。正が前進
     float ForwardSpeed() const { return body.ForwardSpeed(); }

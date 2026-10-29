@@ -52,6 +52,14 @@ float EnginePowertrain::EngineTorque(float rpm) {
     return kTorqueCurve[n - 1].torque;
 }
 
+float EnginePowertrain::PeakPowerKw() {
+    float peak = 0;
+    for (float rpm = kIdleRpm; rpm <= kRedlineRpm; rpm += 50.0f) {
+        peak = std::max(peak, EngineTorque(rpm) * rpm / kRadPerSecToRpm);
+    }
+    return peak / 1000.0f;
+}
+
 float EnginePowertrain::ratio() const {
     float gear = gear_ < 0 ? -kReverseRatio : kGearRatios[gear_ - 1];
     return gear * finalDrive;

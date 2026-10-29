@@ -68,6 +68,7 @@ void Input::OnEvent(const SDL_Event& event) {
         else if (code == SDL_SCANCODE_RETURN || code == SDL_SCANCODE_KP_ENTER || code == SDL_SCANCODE_SPACE) press(Action::Confirm);
         else if (code == SDL_SCANCODE_TAB) press(Action::MenuToggle);
         else if (code == SDL_SCANCODE_E) press(Action::Export);
+        else if (code == SDL_SCANCODE_F) press(Action::MenuDetail);
     }
     if (event.type == SDL_KEYDOWN) {
         // 調整の画面の移動と値の増減。押し続けたときの繰り返しも受ける。

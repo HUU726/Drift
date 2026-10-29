@@ -78,6 +78,14 @@ void Car::SetCenterOfMassY(float height) {
     }
 }
 
+void Car::SetInertiaScale(float scale) {
+    float ratio = scale / inertiaScale;
+    inertiaScale = scale;
+    body.inertiaYaw *= ratio;
+    body.inertiaPitch *= ratio;
+    body.inertiaRoll *= ratio;
+}
+
 void Car::UseMotor(bool useMotor) {
     powertrain = useMotor ? static_cast<IPowertrain*>(&motor) : &engine;
     powertrain->Reset();
@@ -93,7 +101,7 @@ void Car::Place(Vec3 origin, float yaw) {
     body.position = origin;
     body.yaw = yaw;
     // 慣性モーメントは、質量を変えたときに同じ形の箱として比例させる。
-    float massRatio = mass / VehicleSpec::kMass;
+    float massRatio = mass / VehicleSpec::kMass * inertiaScale;
     body.mass = mass;
     body.inertiaYaw = VehicleSpec::kInertiaYaw * massRatio;
     body.inertiaPitch = VehicleSpec::kInertiaPitch * massRatio;

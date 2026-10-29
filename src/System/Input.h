@@ -16,6 +16,7 @@ enum class Action {
     Confirm,  // Enter / Space / パッドの A。シーン選択の画面で決める
     // 調整の画面（試験コース）。上下左右は押し続けると繰り返す。
     MenuToggle,
+    MenuDetail,  // F。調整の画面で、基本の項目と細かい項目を切り替える
     MenuUp,
     MenuDown,
     MenuLeft,

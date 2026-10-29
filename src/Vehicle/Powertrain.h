@@ -26,6 +26,8 @@ public:
 
     // トルクカーブ（rpm: N·m、間は線形補間）
     static float EngineTorque(float rpm);
+    // トルクカーブの最大出力（kW、torqueScale が 1 のとき）。
+    static float PeakPowerKw();
 
     // 試験コースの調整の画面でプレイ中に変えられる値
     float torqueScale = 1.0f;     // トルクカーブ全体に掛ける倍率

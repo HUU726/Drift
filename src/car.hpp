@@ -102,13 +102,17 @@ struct Car {
     float driftAngleAssist = 1.0f;   // 角度を保つために車体を回す補助の強さ
     float driftMaxSteer = 0.96f;     // ドリフト中の逆ハンドルの最大の切れ角（rad、約 55°）
     // ドリフト中の曲がり。スティックを倒しきったときに、進む向きが回る速さ（rad/s）。倒す量に比例し、離すとまっすぐ。
-    float driftCurveRate = 1.1f;     // 約 63°/s
-    float driftMinRadius = 10.0f;    // 倒しきったときに回れる半径（m）。速いときは、この半径で回る速さまで曲げる
-    // ドリフト中に落ちた速さを補う割合（0 で補わない、1 でアクセル全開なら落ちた分をすべて補う）
-    float driftSpeedKeep = 0.8f;
+    float driftCurveRate = 1.4f;     // 約 80°/s
+    float driftMinRadius = 8.0f;     // 倒しきったときに回れる半径（m）。速いときは、この半径で回る速さまで曲げる
+    // ドリフト中に落ちた速さを補う割合（0 で補わない、1 で落ちた分をすべて補う）
+    float driftSpeedKeep = 0.2f;
+    // ドリフト中にアクセル全開で進む向きへ足す加速度（m/s²）。同じ弧のまま速く回れる
+    float driftBoost = 2.0f;
     // ドリフトを抜けた後に、車体を道の向きへ戻す補正の強さ（0 で補正しない）。道の向きを通り越したら補正しない
     float driftExitAlign = 1.0f;
-    float driftCurveAssist = 6.0f;   // 曲がりをその速さへ寄せる補助の強さ（0 で補助なし、大きいほどその速さに近づく）
+    // ドリフトを抜けたとき、アクセル全開でコースの進む向きへ足す加速度（m/s²。0.6 秒）
+    float driftExitBoost = 6.0f;
+    float driftCurveAssist = 2.5f;    // 曲がりをその速さへ寄せる補助の強さ（0 で補助なし、大きいほどその速さに近づく）
     // 状態
     bool drifting = false;
     float driftAngle = 0;            // 車体の滑りの角度（rad、右へ滑るのが正。右のコーナーでは負）
@@ -122,6 +126,11 @@ struct Car {
 private:
     // ドリフトの状態を進め、ドリフト中の後輪と角度の補助を決める。update から呼ぶ。
     void updateDrift(float dt, const DriveInput& input, float speed);
+    // 重心を direction へ accel（m/s²）で押し、車輪の回る速さも同じだけ上げる。車輪を上げないと、
+    // 車輪より速くなった車をタイヤが引き止め、押した分がほとんど打ち消される。
+    void pushForward(Vec3 direction, float accel, float dt);
+    // 重心に加速度 accel（m/s²）を dt の間掛ける（ステップ全体で効くように、速度に直接足す）。
+    void addAccel(Vec3 accel, float dt);
 
     bool rearDriftTires_ = false;
     bool driftKicked_ = false;  // ドリフトに入ってから、サイドブレーキで向きを変え終えたか
@@ -132,6 +141,7 @@ private:
     bool aligning_ = false;  // ドリフト後の向きの補正をしている
     float alignSide_ = 0;    // 補正を始めたときの、道の向きとの差の向き（1 か -1）
     float alignTime_ = 0;    // 補正を始めてからの時間（秒）
+    float exitBoostTime_ = 0;  // ドリフトを抜けたときの加速の残りの時間（秒）
     float gripRecover_ = 1;  // ドリフトを抜けた後、後輪の μ が普段へ戻った割合（0..1）
     bool switching_ = false;  // 反対側のドリフトへ振り返している
     float switchHold_ = 0;    // スティックを反対へ倒し続けている時間（秒）

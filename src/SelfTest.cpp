@@ -680,11 +680,12 @@ DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) 
 // サイドブレーキを離すとまっすぐに戻ること。
 // 平らな試験の地面で、kmh から左へサイドブレーキで向きを変え（0.5 秒）、その後は control(step, input) が
 // 決める入力で走る。Space は押したまま。ステップごとに observe(step) を呼ぶ。
-template <class Control, class Observe>
-void driftScenario(float kmh, int steps, Control control, Observe observe) {
+template <class Control, class Observe, class Setup>
+void driftScenario(float kmh, int steps, Control control, Observe observe, Setup setup) {
     CourseRig rig;
     rig.course.ground.baseMaterial = &Materials::kAsphalt;
     rig.Launch(0.0f, -40.0f, kmh / 3.6f);
+    setup(rig.car);
     for (int step = 0; step < steps; ++step) {
         DriveInput input;
         input.handbrake = true;
@@ -696,6 +697,12 @@ void driftScenario(float kmh, int steps, Control control, Observe observe) {
         rig.Step(input);
         observe(step, rig.car);
     }
+}
+
+// setup(car) で車の設定を変えてから走る版。
+template <class Control, class Observe>
+void driftScenario(float kmh, int steps, Control control, Observe observe) {
+    driftScenario(kmh, steps, control, observe, [](Car&) {});
 }
 
 // ドリフト中にブレーキを踏んでも、ドリフトが切れずにスピンせず、速さだけが落ちること。
@@ -768,8 +775,8 @@ int driftSwitchTest() {
         // 切れずに、1 秒以内に右へ 15° 以上移り、スピンせず、倒すのをやめた後も右のドリフトを保つ。
         if (!held || flipped < 0 || seconds > 1.0f) return 31;
         if (maxAngle > 70.0f / 57.3f || after > -0.17f) return 32;
-        // 振り返す間に、進む向きが 10° より大きく回らない。
-        if (std::fabs(turned) > 10.0f / 57.3f) return 36;
+        // 振り返す間に、進む向きが 12° より大きく回らない（直す前は 18° 回って内側へ切れ込んでいた）。
+        if (std::fabs(turned) > 12.0f / 57.3f) return 36;
     }
     // マンジ: 1.2 秒ごとに、アクセルを一瞬抜いて左右へ倒す。毎回、反対側へ移ること。
     {
@@ -848,6 +855,45 @@ float hairpinRadius(float kmh, float& speedOut) {
     float rate = std::fabs(turned) / (count * kStep);
     speedOut = speedSum / count;
     return speedOut / std::max(rate, 1e-3f);
+}
+
+// スティックを半分倒し、アクセル 0.8 でドリフトのまま 3 秒回る。後の 2 秒の平均の速さ（m/s）と、回った半径（m）。
+void arcRun(float kmh, float boost, float& speedOut, float& radiusOut) {
+    float prevHeading = 0, turned = 0, speedSum = 0;
+    int count = 0;
+    driftScenario(kmh, 30 + 180,
+                  [&](int step, DriveInput& input) {
+                      (void)step;
+                      input.throttle = 0.8f;
+                      input.steer = -0.5f;
+                  },
+                  [&](int step, const Car& car) {
+                      float heading = std::atan2(car.body.velocity.x, car.body.velocity.z);
+                      if (step > 90) {
+                          turned += wrapPi(heading - prevHeading);
+                          speedSum += std::hypot(car.body.velocity.x, car.body.velocity.z);
+                          count++;
+                      }
+                      prevHeading = heading;
+                  },
+                  [&](Car& car) { car.driftBoost = boost; });
+    speedOut = speedSum / count;
+    radiusOut = speedOut / std::max(std::fabs(turned) / (count * kStep), 1e-3f);
+}
+
+// ドリフト中の加速。同じスティックの量なら、加速があっても回る弧（半径）はほとんど変わらず、速く回れること。
+int driftBoostTest() {
+    for (float kmh : {60.0f, 80.0f}) {
+        float slowSpeed = 0, slowRadius = 0, fastSpeed = 0, fastRadius = 0;
+        arcRun(kmh, 0.0f, slowSpeed, slowRadius);
+        arcRun(kmh, 2.0f, fastSpeed, fastRadius);
+        std::printf("self-test drift boost %2.0f km/h: without %.0f km/h radius %.1f m, with %.0f km/h radius %.1f m\n", kmh,
+                    slowSpeed * 3.6f, slowRadius, fastSpeed * 3.6f, fastRadius);
+        // 加速ありで 5 km/h 以上速く、半径の差は 2 割以内。
+        if (fastSpeed - slowSpeed < 5.0f / 3.6f) return 38;
+        if (std::fabs(fastRadius - slowRadius) > 0.2f * slowRadius) return 39;
+    }
+    return 0;
 }
 
 int hairpinTest() {
@@ -1207,9 +1253,9 @@ TougeDriveResult tougeDriveRun(const Track& track, bool verbose, float driftLat 
                 holding = false;
                 releaseWait = 0.15f;
             }
-            if (angle < 0.21f) {
-                // 向きを変える: 曲がる向きへいっぱいに切る（サイドブレーキで後ろが流れる）。速すぎればブレーキも足す
-                //（0.5 以上踏むとドリフトが終わるので、それより弱く）。
+            if (angle < 0.21f && !kickedOnce) {
+                // 向きを変える: 曲がる向きへいっぱいに切る（サイドブレーキで後ろが流れる）。速すぎればブレーキも足す。
+                // 一度角度が付いた後は、角度が浅くなっても切り直さず、曲がりの操作を続ける（いっぱいに切ると内側へ切れ込む）。
                 float dir = cornerAhead >= 0 ? (curvature[cornerAhead] > 0 ? 1.0f : -1.0f) : (bend > 0 ? 1.0f : -1.0f);
                 input.steer = dir;
                 if (speed > want + 2.0f) {
@@ -1406,13 +1452,14 @@ struct AlignResult {
     bool alignedAfterCross = false;  // 通り越した後に、補正をしていたか
     float peakRate = 0;      // 離した後の、車体の回る速さの最大（rad/s）。大きいほど急に振られる
     float overshoot = 0;     // 通り越した側へ行き過ぎた角度の最大（rad）
+    float releaseError = 0;  // 離したときの、車体と道の向きの差（rad）
 };
 
-// 峠の山頂の直線で、道の向きに進みながら車体を bodyDeg 傾けてドリフトし（Space を 1.5 秒押し、アクセル 0.8 で
+// 峠の山頂の直線で、道の向きに進みながら車体を bodyDeg 傾けてドリフトし（Space を release ステップ押し、アクセル 0.8 で
 // 角度を付ける）、離す。
 // yawRate は離す前の車体の回る速さ（rad/s、通り越させるときに道の向きへ速く回す）。離した後はハンドルまっすぐ、
 // アクセル 0.3 で 2 秒走る。
-AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float alignStrength) {
+AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float alignStrength, int release = 90) {
     Rig rig(track);
     Car& car = rig.car;
     car.driftExitAlign = alignStrength;
@@ -1424,7 +1471,6 @@ AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float
         w.omega = 80.0f / 3.6f / w.radius;
     }
     AlignResult result;
-    const int release = 90;  // 1.5 秒ドリフトして角度を付けてから離す
     float side = 0;
     for (int step = 0; step < release + 120; ++step) {
         if (step == release - 1) {
@@ -1439,6 +1485,7 @@ AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float
         float t = (step - release + 1) * kStep;
         if (step == release) {
             result.startedAligning = car.ExitAligning();
+            result.releaseError = std::fabs(error);
             side = error > 0 ? 1.0f : -1.0f;
         }
         result.peakRate = std::max(result.peakRate, std::fabs(car.body.yawRate));
@@ -1456,16 +1503,24 @@ AlignResult exitAlignRun(const Track& track, float bodyDeg, float yawRate, float
 int exitAlignTest() {
     Track track;
     if (!BuildTougeCourse(track)) return 65;
-    for (float body : {-35.0f, 35.0f}) {
-        AlignResult with = exitAlignRun(track, body, 0.0f, 1.0f);
-        AlignResult without = exitAlignRun(track, body, 0.0f, 0.0f);
-        std::printf("self-test exit align body %+3.0f deg: started %d aligned in %.2f s peak %.2f rad/s overshoot %.1f deg"
-                    " (without %.2f s peak %.2f rad/s overshoot %.1f deg)\n",
-                    body, with.startedAligning ? 1 : 0, with.alignedAt, with.peakRate, with.overshoot * 57.3f,
-                    without.alignedAt, without.peakRate, without.overshoot * 57.3f);
-        // 1 秒以内に道の向きへ戻る。急に振られない（回る速さの最大が補正なしより小さく、行き過ぎは 2° 以内）。
-        if (!with.startedAligning || with.alignedAt < 0 || with.alignedAt > 1.0f) return 66;
-        if (with.peakRate > without.peakRate || with.overshoot > 2.0f / 57.3f) return 67;
+    // 浅い角度（車体 20°）と深い角度（車体 45°）で、0.15 秒ドリフトしてから離す。どちらも道の向きへ戻り、
+    // 行き過ぎない。角度が深いほど、補正で速く回す。
+    for (float sign : {-1.0f, 1.0f}) {
+        const float body = 45.0f * sign;
+        AlignResult shallow = exitAlignRun(track, 20.0f * sign, 0.0f, 1.0f, 9);
+        AlignResult deep = exitAlignRun(track, body, 0.0f, 1.0f, 9);
+        AlignResult without = exitAlignRun(track, body, 0.0f, 0.0f, 9);
+        for (const AlignResult* r : {&shallow, &deep}) {
+            std::printf("self-test exit align body %+3.0f deg: released at %.0f deg started %d aligned in %.2f s peak %.2f rad/s"
+                        " overshoot %.1f deg\n",
+                        body, r->releaseError * 57.3f, r->startedAligning ? 1 : 0, r->alignedAt, r->peakRate,
+                        r->overshoot * 57.3f);
+            if (!r->startedAligning || r->alignedAt < 0 || r->alignedAt > 0.8f) return 66;
+            if (r->overshoot > 2.0f / 57.3f) return 67;
+        }
+        std::printf("self-test exit align body %+3.0f deg: without align aligned in %.2f s\n", body, without.alignedAt);
+        if (deep.releaseError <= shallow.releaseError || deep.peakRate <= shallow.peakRate) return 69;
+        if (without.alignedAt >= 0 && deep.alignedAt > without.alignedAt) return 70;
     }
     // 通り越し: 離す直前に、道の向きへ速く回しておく（わざと通り越すような動き）。通り越した後は補正しない。
     for (float body : {-35.0f, 35.0f}) {
@@ -1475,6 +1530,44 @@ int exitAlignTest() {
                     over.crossedAt, over.alignedAfterCross ? 1 : 0);
         if (over.crossedAt < 0 || over.alignedAfterCross) return 68;
     }
+    return 0;
+}
+
+// 峠の山頂の直線で、車体を 30° 傾けてドリフトし（0.15 秒）、Space を離してアクセル全開で 0.6 秒走る。
+// その間にコースの進む向きの速さがどれだけ増えたか（m/s）。
+float exitBoostRun(const Track& track, float boost) {
+    Rig rig(track);
+    Car& car = rig.car;
+    car.driftExitBoost = boost;
+    const float s0 = 30.0f;
+    const float road = trackYawAt(track, s0);
+    const Vec3 roadForward{std::sin(road), 0, std::cos(road)};
+    car.Place(centerAt(track, s0), road + 30.0f / 57.3f);
+    car.body.velocity = roadForward * (80.0f / 3.6f);
+    for (WheelCollider& w : car.wheels) {
+        w.omega = 80.0f / 3.6f / w.radius;
+    }
+    const int release = 9;
+    float atRelease = 0;
+    for (int step = 0; step < release + 36; ++step) {
+        DriveInput input;
+        input.handbrake = step < release;
+        input.throttle = 1.0f;
+        rig.Step(input, track);
+        if (step == release - 1) atRelease = dot(car.body.velocity, roadForward);
+    }
+    return dot(car.body.velocity, roadForward) - atRelease;
+}
+
+// ドリフトを抜けたときの加速。Space を離してアクセルを踏むと、加速なしより速くコースの進む向きへ伸びること。
+int exitBoostTest() {
+    Track track;
+    if (!BuildTougeCourse(track)) return 71;
+    float with = exitBoostRun(track, 6.0f);
+    float without = exitBoostRun(track, 0.0f);
+    std::printf("self-test exit boost: speed gain in 0.6 s %.1f km/h (without %.1f km/h)\n", with * 3.6f, without * 3.6f);
+    // 6 m/s² を 0.6 秒で、加速なしより 2.5 m/s（9 km/h）以上多く伸びる。
+    if (with - without < 2.5f) return 72;
     return 0;
 }
 
@@ -1554,6 +1647,14 @@ int RunSelfTest(const Track& track) {
         return result;
     }
     result = exitAlignTest();
+    if (result != 0) {
+        return result;
+    }
+    result = exitBoostTest();
+    if (result != 0) {
+        return result;
+    }
+    result = driftBoostTest();
     if (result != 0) {
         return result;
     }

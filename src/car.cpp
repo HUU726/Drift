@@ -24,16 +24,35 @@ constexpr float kSwitchHoldTime = 0.1f;   // 振り返し: 倒し続ける時間
 constexpr float kSwitchGain = 16.0f;      // 振り返し: 反対側の目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kSwitchDone = 0.17f;      // 振り返し: 反対側へこの角度（rad、約 10°）移ったら終える
 constexpr float kPathRateSmoothing = 0.1f;  // 曲がりの補助: 進む向きの回る速さをならす時間（秒）
-constexpr float kMaxCurveAccel = 38.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
-constexpr float kMaxKeepAccel = 14.0f;      // 速さの補助が出す前向きの加速度の上限（m/s²）
+constexpr float kMaxCurveAccel = 18.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
+constexpr float kMaxKeepAccel = 3.5f;       // 速さの補助が出す前向きの加速度の上限（m/s²）
 constexpr float kAlignStart = 0.05f;       // ドリフト後の向きの補正: 道の向きとの差がこれ（rad、約 3°）より大きければ始める
 constexpr float kAlignDone = 0.01f;        // 差がこれ（rad）より小さくなるか、逆向きになったら終える
 constexpr float kAlignMaxTime = 2.5f;      // 長くてもこの時間（秒）で終える
+constexpr float kExitBoostTime = 0.6f;     // ドリフトを抜けたときの加速を続ける時間（秒）
 constexpr float kAlignRate = 3.0f;         // 差（rad）に掛ける、目標の回る速さ（1/s）
-constexpr float kAlignMaxRate = 1.0f;      // 目標の回る速さの上限（rad/s、約 57°/s）
+constexpr float kAlignMaxRate = 3.0f;      // 目標の回る速さの上限（rad/s、約 170°/s）。差が大きいほど速く戻す
 constexpr float kAlignResponse = 20.0f;     // 目標の回る速さとの差（rad/s）に掛ける角加速度（1/s）
 
 }  // namespace
+
+void Car::addAccel(Vec3 accel, float dt) {
+    // 物理は 1 ステップを細かく分けて進め、力は最初の 1 回でしか使われない（AddForceAt で足すと効きが目減りする）。
+    // 重心に掛ける補助の加速度は、ステップ全体の分を速度に直接足す。
+    body.velocity = body.velocity + accel * dt;
+}
+
+void Car::pushForward(Vec3 direction, float accel, float dt) {
+    addAccel(direction * accel, dt);
+    // 車輪は車体の前向きに転がるので、前向きに増える速さの分だけ回す。
+    float forwardGain = accel * dt * dot(direction, body.Forward());
+    if (forwardGain <= 0) {
+        return;
+    }
+    for (WheelCollider& wheel : wheels) {
+        wheel.omega += forwardGain / wheel.radius;
+    }
+}
 
 void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     // 車体の滑りの角度。進む向きと車体の向きの差で、右へ滑るのが正（右のコーナーのドリフトでは負）。
@@ -87,6 +106,22 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         float targetRate = clampf(kAlignRate * driftExitAlign * roadError, -maxRate, maxRate);
         float accel = kAlignResponse * (targetRate - (body.yawRate - pathRate_));
         body.AddTorque(accel * body.inertiaYaw, 0, 0, dt);
+    }
+
+    // ドリフトを抜けたときの加速（ゲームとしての補助）。抜けてから kExitBoostTime の間、アクセルを踏んでいれば
+    // コースの進む向きへ アクセル × driftExitBoost で押す。ブレーキを踏む、またドリフトに入ると終える。
+    if (wasDrifting && !drifting) {
+        exitBoostTime_ = kExitBoostTime;
+    }
+    if (drifting || airborne || input.brake > 0.05f) {
+        exitBoostTime_ = 0;
+    }
+    if (exitBoostTime_ > 0) {
+        exitBoostTime_ -= dt;
+        if (ground.found && driftExitBoost > 0 && input.throttle > 0.05f) {
+            Vec3 roadForward{std::sin(ground.yaw), 0, std::cos(ground.yaw)};
+            pushForward(roadForward, driftExitBoost * clampf(input.throttle, 0.0f, 1.0f), dt);
+        }
     }
 
     // ドリフト中の後輪。普段の後輪の特性のまま、μ だけ前輪の driftRearGrip 倍にする。
@@ -155,7 +190,7 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         float length = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
         // 進む向きの右（ヨーが正の向きへ曲げる向き）。
         Vec3 right{velocity.z / length, 0, -velocity.x / length};
-        body.AddForceAt(right * (lateralAccel * body.mass), body.position);
+        addAccel(right * lateralAccel, dt);
     }
 
     // 速さの補助。ドリフト中に落ちた速さを、driftSpeedKeep に応じて進む向きへ押し戻す。落ちた分だけを補い、
@@ -172,8 +207,15 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         travelDecel > 0) {
         float keep = std::min(travelDecel * driftSpeedKeep * keepShare, kMaxKeepAccel);
         Vec3 along{body.velocity.x / travelSpeed, 0, body.velocity.z / travelSpeed};
-        body.AddForceAt(along * (keep * body.mass), body.position);
+        addAccel(along * keep, dt);
         lastKeepAccel_ = keep;
+    }
+
+    // ドリフト中の加速。角度が付いた後、アクセルの踏み込み × driftBoost で進む向きへ押す（ゲームとしての補助）。
+    // 回る半径はスティックの量で決まり速さによらないので、同じ弧のまま速く回れる。
+    if (drifting && driftKicked_ && driftBoost > 0 && input.throttle > 0.05f && input.brake < 0.05f && travelSpeed > 1.0f) {
+        Vec3 along{body.velocity.x / travelSpeed, 0, body.velocity.z / travelSpeed};
+        pushForward(along, driftBoost * clampf(input.throttle, 0.0f, 1.0f), dt);
     }
 }
 
@@ -287,6 +329,7 @@ void Car::Place(Vec3 origin, float yaw) {
     prevTravelSpeed_ = 0;
     lastKeepAccel_ = 0;
     aligning_ = false;
+    exitBoostTime_ = 0;
     gripRecover_ = 1;
     switching_ = false;
     switchHold_ = 0;

@@ -122,6 +122,13 @@ void TuningObject::buildBasicItems() {
     add("DRIFT", {"DRIFT EXIT ALIGN", "drift_exit_align", 0, 3, 0.1f,
                   [&car] { return car.driftExitAlign; },
                   [&car](float v) { car.driftExitAlign = v; }});
+    // ドリフト中にアクセルで足す加速と、ドリフトを抜けたときにコースの向きへ足す加速（どちらも m/s²）。
+    add("DRIFT", {"DRIFT BOOST M/S2", "drift_boost", 0, 8, 0.25f,
+                  [&car] { return car.driftBoost; },
+                  [&car](float v) { car.driftBoost = v; }});
+    add("DRIFT", {"DRIFT EXIT BOOST M/S2", "drift_exit_boost", 0, 15, 0.5f,
+                  [&car] { return car.driftExitBoost; },
+                  [&car](float v) { car.driftExitBoost = v; }});
     // 運転の補助（ABS、トラクションコントロール、空中の姿勢の補助、着地の補助）をまとめて切り替える。
     add("ASSISTS", {"DRIVING ASSISTS", "assists", 0, 1, 1,
                     [&car] { return car.wheels[0].antiLock ? 1.0f : 0.0f; },

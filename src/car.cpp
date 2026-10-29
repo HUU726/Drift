@@ -18,7 +18,7 @@ constexpr float kDriftSpinAngle = 1.45f;  // これを越えたらスピンと�
 constexpr float kAngleGain = 10.0f;       // 角度の補助: 目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kAngleDamping = 4.0f;     // 角度の補助: 角度の変わる速さ（rad/s）に掛ける角加速度（1/s）
 constexpr float kGripRecoverTime = 0.6f;  // ドリフトを抜けた後、後輪の μ を普段へ戻す時間（秒）
-constexpr float kSwitchStick = 0.6f;      // 振り返し: 反対へこれより大きく倒すと始める
+constexpr float kSwitchStick = 0.5f;      // 振り返し: 反対へこれより大きく倒すと始める（パッドの遊びを引いた後の値）
 constexpr float kSwitchThrottle = 0.1f;   // 振り返し: アクセルがこれより小さい（抜いている）ときだけ始める
 constexpr float kSwitchHoldTime = 0.1f;   // 振り返し: 倒し続ける時間（秒）。修正で一瞬倒したくらいでは始めない
 constexpr float kSwitchGain = 16.0f;      // 振り返し: 反対側の目標の角度との差（rad）に掛ける角加速度（1/s²）
@@ -110,7 +110,9 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     float travelSpeed = std::sqrt(body.velocity.x * body.velocity.x + body.velocity.z * body.velocity.z);
     if (drifting && driftKicked_ && driftCurveAssist > 0 && travelSpeed > 1.0f) {
         float fullRate = std::max(driftCurveRate, travelSpeed / std::max(driftMinRadius, 1.0f));
-        float target = clampf(input.steer, -1.0f, 1.0f) * fullRate;
+        // 振り返しの間は、倒したスティックは振り返しの合図なので、曲がりには使わない（まっすぐ進む）。
+        // 使うと、振り返しながら進む向きまで内側へ急に回り、内側のガードレールに当たる。
+        float target = switching_ ? 0.0f : clampf(input.steer, -1.0f, 1.0f) * fullRate;
         float lateralAccel = driftCurveAssist * (target - pathRate_) * travelSpeed;
         lateralAccel = clampf(lateralAccel, -kMaxCurveAccel, kMaxCurveAccel);
         Vec3 velocity{body.velocity.x, 0, body.velocity.z};

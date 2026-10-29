@@ -737,31 +737,39 @@ int driftBrakeTest() {
 // アクセルを踏んだまま反対へ倒したとき（ラインを外へ膨らませる）は、振り返さないこと。
 // 1 回の振り返し（左のドリフトから右へ）、直線で左右へ 4 回続けるマンジ、外へ膨らませる操作を試す。
 int driftSwitchTest() {
-    // 1 回: 左のドリフト（角度が正）を 1.5 秒保ち、アクセルを抜いて右へいっぱいに倒す（0.25 秒）。
-    {
+    // 1 回: 左のドリフト（角度が正）を 1.5 秒保ち、アクセルを抜いて右へ倒す（0.25 秒抜き、1 秒倒す）。
+    // いっぱいに倒したときと、パッドで軽く倒したとき（0.55）の両方で振り返せ、振り返す間に進む向きが
+    // 大きく回らない（倒したスティックで内側へ曲がり込まない）こと。
+    for (float stick : {1.0f, 0.55f}) {
         const int switchAt = 120;
         int flipped = -1;
         bool held = true;
         float after = 0;
         float maxAngle = 0;
+        float prevHeading = 0, turned = 0;
         driftScenario(80.0f, 330,
                       [&](int step, DriveInput& input) {
                           bool flick = step >= switchAt && step < switchAt + 15;
                           input.throttle = flick ? 0.0f : 0.6f;
-                          input.steer = step >= switchAt && step < switchAt + 60 ? 1.0f : 0.0f;
+                          input.steer = step >= switchAt && step < switchAt + 60 ? stick : 0.0f;
                       },
                       [&](int step, const Car& car) {
+                          float heading = std::atan2(car.body.velocity.x, car.body.velocity.z);
+                          if (step > switchAt && flipped < 0) turned += wrapPi(heading - prevHeading);
+                          prevHeading = heading;
                           if (step >= 90) held = held && car.drifting;
                           if (step >= switchAt && flipped < 0 && car.driftAngle < -0.26f) flipped = step;
                           if (step >= switchAt) maxAngle = std::max(maxAngle, std::fabs(car.driftAngle));
                           if (step == 329) after = car.driftAngle;
                       });
         float seconds = flipped >= 0 ? (flipped - switchAt) * kStep : -1.0f;
-        std::printf("self-test drift switch: held %d flipped in %.2f s max %.0f deg end %.0f deg\n", held ? 1 : 0, seconds,
-                    maxAngle * 57.3f, after * 57.3f);
+        std::printf("self-test drift switch stick %.2f: held %d flipped in %.2f s turned %.0f deg max %.0f deg end %.0f deg\n",
+                    stick, held ? 1 : 0, seconds, turned * 57.3f, maxAngle * 57.3f, after * 57.3f);
         // 切れずに、1 秒以内に右へ 15° 以上移り、スピンせず、倒すのをやめた後も右のドリフトを保つ。
         if (!held || flipped < 0 || seconds > 1.0f) return 31;
         if (maxAngle > 70.0f / 57.3f || after > -0.17f) return 32;
+        // 振り返す間に、進む向きが 10° より大きく回らない。
+        if (std::fabs(turned) > 10.0f / 57.3f) return 36;
     }
     // マンジ: 1.2 秒ごとに、アクセルを一瞬抜いて左右へ倒す。毎回、反対側へ移ること。
     {

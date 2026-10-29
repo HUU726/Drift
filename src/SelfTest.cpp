@@ -153,7 +153,8 @@ int lapTest(const Track& track) {
     if (track.length < 5200.0f || track.length > 6500.0f) return 2;
     if (travelled < 1200.0f) return 3;
     if (maxLat > 30.0f) return 4;
-    if (maxAir > 0.2f || maxCompression > VehicleSpec::kBumpStop) return 8;
+    // 全力ブレーキ（グリップ μ 2.0 で約 2G）では前がバンプストップに少し当たる。深く入らなければよい。
+    if (maxAir > 0.2f || maxCompression > VehicleSpec::kBumpStop + 0.02f) return 8;
     return 0;
 }
 
@@ -604,7 +605,9 @@ int steerTest() {
         SteerResult coast = steerRun(kmh, 0.0f, 0);
         steerRun(kmh, 1.0f, 0);
         // 後輪の滑りの角度がピーク（約 6.9°）を大きく越えたり、車体が横へ流れたりしたらスピンしかけている。
-        if (coast.maxRear > 9.0f / 57.3f || coast.maxSideSlip > 5.0f) return 22;
+        // 横の速さは、速さに対する角度（10°）で見る。グリップが高いほどきつく曲がれ、その分の横の速さは増える。
+        float sideLimit = kmh / 3.6f * std::tan(10.0f / 57.3f);
+        if (coast.maxRear > 9.0f / 57.3f || coast.maxSideSlip > sideLimit) return 22;
     }
     SteerResult handbrake = steerRun(70.0f, 0.0f, 36);
     if (handbrake.maxRear < 20.0f / 57.3f) return 23;

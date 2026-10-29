@@ -94,13 +94,13 @@ struct Car {
     // ハンドルの入力は行きたい向き、アクセルは角度の深さ（離すと driftMinAngle、全開で driftMaxAngle）になる。
     bool driftAssist = true;         // ドリフトの状態を使うか（切ると普段の車のまま）
     float driftEnterAngle = 0.21f;   // サイドブレーキを外す角度（rad、約 12°）。車体の滑りの角度（進む向きと車体の向きの差）
-    float driftRearGrip = 0.8f;      // ドリフト中の後輪の μ / 前輪の μ
+    float driftRearGrip = 0.64f;     // ドリフト中の後輪の μ / 前輪の μ（前輪 2.0 に対して約 1.28）
     float driftMinAngle = 0.35f;     // アクセルを離したときに保つ角度（rad、約 20°）
     float driftMaxAngle = 0.96f;     // アクセル全開で保つ角度（rad、約 55°）
     float driftAngleAssist = 1.0f;   // 角度を保つために車体を回す補助の強さ
     float driftMaxSteer = 0.96f;     // ドリフト中の逆ハンドルの最大の切れ角（rad、約 55°）
     // ドリフト中の曲がり。スティックを倒しきったときに、進む向きが回る速さ（rad/s）。倒す量に比例し、離すとまっすぐ。
-    float driftCurveRate = 0.6f;     // 約 34°/s
+    float driftCurveRate = 0.9f;     // 約 52°/s
     float driftCurveAssist = 1.0f;   // 曲がりをその速さへ寄せる補助の強さ（0 で補助なし、大きいほどその速さに近づく）
     // 状態
     bool drifting = false;
@@ -120,6 +120,7 @@ private:
     bool driftKicked_ = false;  // ドリフトに入ってから、サイドブレーキで向きを変え終えたか
     float prevDriftAngle_ = 0;
     float pathRate_ = 0;  // 進む向きの回る速さ（rad/s、ならしたもの）
+    float gripRecover_ = 1;  // ドリフトを抜けた後、後輪の μ が普段へ戻った割合（0..1）
 };
 
 void buildCarBody(CpuMesh& mesh);

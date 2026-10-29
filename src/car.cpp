@@ -17,6 +17,7 @@ constexpr float kDriftMinSpeed = 8.0f;    // これより遅いとドリフト�
 constexpr float kDriftSpinAngle = 1.45f;  // これを越えたらスピンとしてドリフトをやめる（rad、約 83°）
 constexpr float kAngleGain = 10.0f;       // 角度の補助: 目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kAngleDamping = 4.0f;     // 角度の補助: 角度の変わる速さ（rad/s）に掛ける角加速度（1/s）
+constexpr float kGripRecoverTime = 0.6f;  // ドリフトを抜けた後、後輪の μ を普段へ戻す時間（秒）
 constexpr float kPathRateSmoothing = 0.1f;  // 曲がりの補助: 進む向きの回る速さをならす時間（秒）
 constexpr float kMaxCurveAccel = 12.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
 
@@ -47,8 +48,13 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     }
 
     // ドリフト中の後輪。普段の後輪の特性のまま、μ だけ前輪の driftRearGrip 倍にする。
-    driftModeTire.params = rearDriftTires_ ? rearDriftTire.params : rearGripTire.params;
-    driftModeTire.params.muScale = frontTire.params.muScale * driftRearGrip;
+    // ドリフトを抜けた後は、kGripRecoverTime かけて普段の μ へ戻す。一気に戻すと、横を向いた車体が強く引き戻されて
+    // 逆へ振られる。
+    const TireParams& normal = rearDriftTires_ ? rearDriftTire.params : rearGripTire.params;
+    gripRecover_ = drifting ? 0.0f : std::min(1.0f, gripRecover_ + dt / kGripRecoverTime);
+    float driftMu = frontTire.params.muScale * driftRearGrip;
+    driftModeTire.params = normal;
+    driftModeTire.params.muScale = driftMu + (normal.muScale - driftMu) * gripRecover_;
 
     // 角度の補助。アクセルを踏んでいる間は、踏み込みに応じた角度へ車体を回す（深すぎれば戻す）。
     // アクセルを離すと、角度の変わる速さだけを抑え、車が自然にまっすぐへ戻るのを待つ。
@@ -186,6 +192,7 @@ void Car::Place(Vec3 origin, float yaw) {
     driftKicked_ = false;
     prevDriftAngle_ = 0;
     pathRate_ = 0;
+    gripRecover_ = 1;
     powertrain->Reset();
     airControl.Reset();
     ground = TrackPose{};
@@ -281,7 +288,8 @@ void Car::update(float dt, const DriveInput& input, const Track* track) {
         bool front = i < kRearLeft;
         wheel.steer = front ? steerAngle : 0.0f;
         if (!front) {
-            wheel.tire = drifting ? &driftModeTire : (rearDriftTires_ ? static_cast<const ITireModel*>(&rearDriftTire) : &rearGripTire);
+            bool recovering = gripRecover_ < 1.0f;
+            wheel.tire = drifting || recovering ? &driftModeTire : (rearDriftTires_ ? static_cast<const ITireModel*>(&rearDriftTire) : &rearGripTire);
             wheel.drifting = drifting;
         }
         float driveTorque = front ? 0.0f : axleTorque * 0.5f;

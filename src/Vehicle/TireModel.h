@@ -41,14 +41,14 @@ protected:
 };
 
 // グリップ走行用。ピークを越えても力があまり落ちず、滑ってもすぐ戻る。
-// μ の倍率 1.45 は遊びやすさのための値。舗装路（μ 1.1）で約 1.6 になり、実車とアーケードの中間の手応えにする。
+// μ の倍率 1.82 は遊びやすさのための値。舗装路（μ 1.1）で約 2.0 になり、よく曲がり滑りにくい手応えにする。
 class GripTire : public ITireModel {
 public:
-    GripTire() : ITireModel({0.10f, 0.12f, 0.9f, 1.45f}) {}
+    GripTire() : ITireModel({0.10f, 0.12f, 0.9f, 1.82f}) {}
 };
 
 // ドリフト用。横のピークが早く、越えると力が大きく落ちるので、滑らせたまま保ちやすい。
 class DriftTire : public ITireModel {
 public:
-    DriftTire() : ITireModel({0.10f, 0.09f, 0.7f, 1.38f}) {}  // μ の倍率はグリップ用の 0.95 倍
+    DriftTire() : ITireModel({0.10f, 0.09f, 0.7f, 1.73f}) {}  // μ の倍率はグリップ用の 0.95 倍
 };

@@ -19,11 +19,12 @@ constexpr float kAngleGain = 10.0f;       // 角度の補助: 目標の角度と
 constexpr float kAngleDamping = 4.0f;     // 角度の補助: 角度の変わる速さ（rad/s）に掛ける角加速度（1/s）
 constexpr float kGripRecoverTime = 0.6f;  // ドリフトを抜けた後、後輪の μ を普段へ戻す時間（秒）
 constexpr float kSwitchStick = 0.6f;      // 振り返し: 反対へこれより大きく倒すと始める
+constexpr float kSwitchThrottle = 0.1f;   // 振り返し: アクセルがこれより小さい（抜いている）ときだけ始める
 constexpr float kSwitchHoldTime = 0.1f;   // 振り返し: 倒し続ける時間（秒）。修正で一瞬倒したくらいでは始めない
 constexpr float kSwitchGain = 16.0f;      // 振り返し: 反対側の目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kSwitchDone = 0.17f;      // 振り返し: 反対側へこの角度（rad、約 10°）移ったら終える
 constexpr float kPathRateSmoothing = 0.1f;  // 曲がりの補助: 進む向きの回る速さをならす時間（秒）
-constexpr float kMaxCurveAccel = 12.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
+constexpr float kMaxCurveAccel = 20.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
 
 }  // namespace
 
@@ -61,14 +62,16 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
     driftModeTire.params = normal;
     driftModeTire.params.muScale = driftMu + (normal.muScale - driftMu) * gripRecover_;
 
-    // 振り返し。ドリフト中にスティックを今のコーナーと反対へ大きく倒し続けると、反対側のドリフトへ車体を振る。
+    // 振り返し。ドリフト中にアクセルを抜いて、スティックを今のコーナーと反対へ大きく倒し続けると、
+    // 反対側のドリフトへ車体を振る。アクセルを踏んだまま反対へ倒すのは、ラインを外へ膨らませる操作なので振り返さない。
     // 右へ滑っている（角度が正）のは左のコーナーなので、反対へ倒すのは右（スティックが正）。
     float side = driftAngle < 0 ? -1.0f : 1.0f;
     if (!drifting || !driftKicked_) {
         switching_ = false;
         switchHold_ = 0;
     } else if (!switching_) {
-        bool opposite = angle > driftEnterAngle && input.steer * side > kSwitchStick;
+        bool lifted = input.throttle < kSwitchThrottle;
+        bool opposite = angle > driftEnterAngle && lifted && input.steer * side > kSwitchStick;
         switchHold_ = opposite ? switchHold_ + dt : 0.0f;
         if (switchHold_ > kSwitchHoldTime) {
             switching_ = true;
@@ -97,13 +100,18 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         body.AddTorque(-accel * driftAngleAssist * body.inertiaYaw, 0, 0, dt);
     }
 
-    // 曲がりの補助。進む向きの回る速さ（車体のヨーレート + 角度の変わる速さ）を、スティックの倒す量 × driftCurveRate へ
-    // 寄せる。進む向きに直角な力を重心に掛けるので、速さは変えずに進む向きだけを曲げる。
+    // 曲がりの補助。進む向きの回る速さ（車体のヨーレート + 角度の変わる速さ）を、スティックの倒す量 × 倒しきったときの
+    // 速さへ寄せる。倒しきったときの速さは、driftCurveRate と、半径 driftMinRadius で回る速さ（速さ / 半径）の大きいほう。
+    // 速いときも、ヘアピンを回れる半径まで曲がれる。
+    // 進む向きに直角な力を重心に掛けるので、速さは変えずに進む向きだけを曲げる。
     float pathRate = body.yawRate + angleRate;
     pathRate_ += (pathRate - pathRate_) * (1.0f - std::exp(-dt / kPathRateSmoothing));
-    if (drifting && driftKicked_ && driftCurveAssist > 0 && speed > 1.0f) {
-        float target = clampf(input.steer, -1.0f, 1.0f) * driftCurveRate;
-        float lateralAccel = driftCurveAssist * (target - pathRate_) * speed;
+    // 速さは、車体の前向きの成分ではなく、実際に進む速さ（横を向いているほど前向きの成分より大きい）。
+    float travelSpeed = std::sqrt(body.velocity.x * body.velocity.x + body.velocity.z * body.velocity.z);
+    if (drifting && driftKicked_ && driftCurveAssist > 0 && travelSpeed > 1.0f) {
+        float fullRate = std::max(driftCurveRate, travelSpeed / std::max(driftMinRadius, 1.0f));
+        float target = clampf(input.steer, -1.0f, 1.0f) * fullRate;
+        float lateralAccel = driftCurveAssist * (target - pathRate_) * travelSpeed;
         lateralAccel = clampf(lateralAccel, -kMaxCurveAccel, kMaxCurveAccel);
         Vec3 velocity{body.velocity.x, 0, body.velocity.z};
         float length = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z);

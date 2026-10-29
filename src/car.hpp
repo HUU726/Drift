@@ -101,7 +101,8 @@ struct Car {
     float driftMaxSteer = 0.96f;     // ドリフト中の逆ハンドルの最大の切れ角（rad、約 55°）
     // ドリフト中の曲がり。スティックを倒しきったときに、進む向きが回る速さ（rad/s）。倒す量に比例し、離すとまっすぐ。
     float driftCurveRate = 0.9f;     // 約 52°/s
-    float driftCurveAssist = 1.0f;   // 曲がりをその速さへ寄せる補助の強さ（0 で補助なし、大きいほどその速さに近づく）
+    float driftMinRadius = 12.0f;    // 倒しきったときに回れる半径（m）。速いときは、この半径で回る速さまで曲げる
+    float driftCurveAssist = 6.0f;   // 曲がりをその速さへ寄せる補助の強さ（0 で補助なし、大きいほどその速さに近づく）
     // 状態
     bool drifting = false;
     float driftAngle = 0;            // 車体の滑りの角度（rad、右へ滑るのが正。右のコーナーでは負）

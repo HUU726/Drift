@@ -276,9 +276,12 @@ void TuningObject::buildDetailItems() {
     add("DRIFT", {"DRIFT MAX STEER DEG", "drift_max_steer_deg", 20, 70, 1,
                   [&car] { return car.driftMaxSteer * kRadToDeg; },
                   [&car](float v) { car.driftMaxSteer = v / kRadToDeg; }});
-    add("DRIFT", {"DRIFT CURVE ASSIST", "drift_curve_assist", 0, 4, 0.1f,
+    add("DRIFT", {"DRIFT CURVE ASSIST", "drift_curve_assist", 0, 10, 0.1f,
                   [&car] { return car.driftCurveAssist; },
                   [&car](float v) { car.driftCurveAssist = v; }});
+    add("DRIFT", {"DRIFT MIN RADIUS M", "drift_min_radius", 5, 40, 1,
+                  [&car] { return car.driftMinRadius; },
+                  [&car](float v) { car.driftMinRadius = v; }});
 }
 
 std::string TuningObject::valueText(const Item& item) const {

@@ -733,10 +733,11 @@ int driftBrakeTest() {
     return 0;
 }
 
-// Space を押したまま、スティックを反対へ倒すと、ドリフトのまま反対側へ振り返せること。
-// 1 回の振り返し（左のドリフトから右へ）と、直線で左右へ 4 回続けるマンジを試す。
+// Space を押したまま、アクセルを抜いてスティックを反対へ倒すと、ドリフトのまま反対側へ振り返せること。
+// アクセルを踏んだまま反対へ倒したとき（ラインを外へ膨らませる）は、振り返さないこと。
+// 1 回の振り返し（左のドリフトから右へ）、直線で左右へ 4 回続けるマンジ、外へ膨らませる操作を試す。
 int driftSwitchTest() {
-    // 1 回: 左のドリフト（角度が正）を 1.5 秒保ち、右へいっぱいに倒す。
+    // 1 回: 左のドリフト（角度が正）を 1.5 秒保ち、アクセルを抜いて右へいっぱいに倒す（0.25 秒）。
     {
         const int switchAt = 120;
         int flipped = -1;
@@ -745,7 +746,8 @@ int driftSwitchTest() {
         float maxAngle = 0;
         driftScenario(80.0f, 330,
                       [&](int step, DriveInput& input) {
-                          input.throttle = 0.6f;
+                          bool flick = step >= switchAt && step < switchAt + 15;
+                          input.throttle = flick ? 0.0f : 0.6f;
                           input.steer = step >= switchAt && step < switchAt + 60 ? 1.0f : 0.0f;
                       },
                       [&](int step, const Car& car) {
@@ -761,7 +763,7 @@ int driftSwitchTest() {
         if (!held || flipped < 0 || seconds > 1.0f) return 31;
         if (maxAngle > 70.0f / 57.3f || after > -0.17f) return 32;
     }
-    // マンジ: 1.2 秒ごとに左右へ倒す。毎回、反対側へ移ること。
+    // マンジ: 1.2 秒ごとに、アクセルを一瞬抜いて左右へ倒す。毎回、反対側へ移ること。
     {
         int switches = 0;
         float prevSign = 1;
@@ -769,8 +771,9 @@ int driftSwitchTest() {
         float maxAngle = 0;
         driftScenario(80.0f, 30 + 72 * 5,
                       [&](int step, DriveInput& input) {
-                          input.throttle = 0.6f;
                           int phase = (step - 30) / 72;
+                          int inPhase = (step - 30) % 72;
+                          input.throttle = phase > 0 && inPhase < 15 ? 0.0f : 0.6f;
                           input.steer = phase == 0 ? 0.0f : (phase % 2 ? 1.0f : -1.0f);
                       },
                       [&](int step, const Car& car) {
@@ -783,6 +786,71 @@ int driftSwitchTest() {
                       });
         std::printf("self-test drift manji: held %d switches %d max %.0f deg\n", held ? 1 : 0, switches, maxAngle * 57.3f);
         if (!held || switches < 4 || maxAngle > 70.0f / 57.3f) return 33;
+    }
+    // 外へ膨らませる: 左のドリフトのまま、アクセルを踏んだまま右（外）へ半分といっぱいに 2 秒倒す。
+    // 左のドリフトのまま（角度が正のまま）で、倒すほど進む向きが右へ回る（左への曲がりが小さくなる）。
+    float prevTurn = -1e9f;
+    for (float out : {0.0f, 0.5f, 1.0f}) {
+        bool sameSide = true;
+        float minAngle = 1e9f;
+        float prevHeading = 0, turned = 0;
+        driftScenario(80.0f, 210,
+                      [&](int step, DriveInput& input) {
+                          input.throttle = 0.6f;
+                          input.steer = step >= 90 ? out : 0.0f;
+                      },
+                      [&](int step, const Car& car) {
+                          float heading = std::atan2(car.body.velocity.x, car.body.velocity.z);
+                          if (step > 90) turned += wrapPi(heading - prevHeading);
+                          prevHeading = heading;
+                          if (step >= 90) {
+                              sameSide = sameSide && car.drifting && car.driftAngle > 0.0f;
+                              minAngle = std::min(minAngle, car.driftAngle);
+                          }
+                      });
+        float rate = turned * 57.3f / 2.0f;
+        std::printf("self-test drift outward %.1f: same side %d min angle %.0f deg turn %.0f deg/s\n", out,
+                    sameSide ? 1 : 0, minAngle * 57.3f, rate);
+        if (!sameSide || rate <= prevTurn + 3.0f) return 34;
+        prevTurn = rate;
+    }
+    return 0;
+}
+
+// ヘアピンの速さでも小さく回れること。kmh で左へ向きを変え、スティックを左（内）へいっぱいに倒したまま
+// アクセル半分で 2 秒回る。その間の進む向きの回る速さから、回った半径を求める。
+float hairpinRadius(float kmh, float& speedOut) {
+    float prevHeading = 0, turned = 0, speedSum = 0;
+    int count = 0;
+    driftScenario(kmh, 30 + 30 + 120,
+                  [&](int step, DriveInput& input) {
+                      input.throttle = 0.5f;
+                      input.steer = -1.0f;
+                      (void)step;
+                  },
+                  [&](int step, const Car& car) {
+                      float heading = std::atan2(car.body.velocity.x, car.body.velocity.z);
+                      if (step > 60) {
+                          turned += wrapPi(heading - prevHeading);
+                          speedSum += std::hypot(car.body.velocity.x, car.body.velocity.z);
+                          count++;
+                      }
+                      prevHeading = heading;
+                  });
+    float rate = std::fabs(turned) / (count * kStep);
+    speedOut = speedSum / count;
+    return speedOut / std::max(rate, 1e-3f);
+}
+
+int hairpinTest() {
+    // 60 km/h で入って半径 13 m 以下、70 km/h で入っても峠のヘアピン（半径 15 m）に収まる。
+    const float entry[] = {60.0f, 70.0f};
+    const float within[] = {13.0f, 15.0f};
+    for (int i = 0; i < 2; ++i) {
+        float speed = 0;
+        float radius = hairpinRadius(entry[i], speed);
+        std::printf("self-test hairpin %2.0f km/h: radius %.1f m at %.0f km/h\n", entry[i], radius, speed * 3.6f);
+        if (radius > within[i]) return 35;
     }
     return 0;
 }
@@ -977,12 +1045,12 @@ struct TougeDriveResult {
     int stops = 0;         // 壁などで止まり、下がり直した回数
 };
 
-TougeDriveResult tougeDriveRun(const Track& track, bool verbose) {
+TougeDriveResult tougeDriveRun(const Track& track, bool verbose, float driftLat = 8.0f) {
     const int n = static_cast<int>(track.samples.size());
     // 曲がりの強いところ（半径 130 m 未満）をドリフトで回る。グリップでの速さの上限（横 10 m/s²）と、
     // ドリフトでの速さの目安（横 kDriftLat）を、止まれる減速で手前から下げる。
     constexpr float kDriftRadius = 130.0f;
-    constexpr float kDriftLat = 8.0f;
+    const float kDriftLat = driftLat;
     std::vector<float> curvature(n);
     std::vector<float> limit(n);
     for (int i = 0; i < n; ++i) {
@@ -1083,10 +1151,13 @@ TougeDriveResult tougeDriveRun(const Track& track, bool verbose) {
                     input.brake = 0.45f;
                 }
             } else {
-                // 曲がり: 進む向きを狙う点へ向ける回る速さを、スティックで決める（倒しきりで 0.9 rad/s）。
+                // 曲がり: 進む向きを狙う点へ向ける回る速さを、スティックで決める。倒しきったときの速さは、
+                // driftCurveRate と、半径 driftMinRadius で回る速さの大きいほう（Car と同じ）。
+                float travel = std::hypot(velocity.x, velocity.z);
                 float error = wrapPi(aimYaw - travelYaw);
-                float rate = bend * speed + 2.0f * error;
-                input.steer = clampf(rate / car.driftCurveRate, -1.0f, 1.0f);
+                float rate = bend * travel + 2.0f * error;
+                float fullRate = std::max(car.driftCurveRate, travel / car.driftMinRadius);
+                input.steer = clampf(rate / fullRate, -1.0f, 1.0f);
                 // 角度はアクセルで決める。速すぎれば戻し、遅ければ踏む。
                 if (speed > want + 2.0f) {
                     input.throttle = 0.15f;
@@ -1318,6 +1389,10 @@ int RunSelfTest(const Track& track) {
         return result;
     }
     result = driftBrakeTest();
+    if (result != 0) {
+        return result;
+    }
+    result = hairpinTest();
     if (result != 0) {
         return result;
     }

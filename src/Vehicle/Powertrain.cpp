@@ -84,10 +84,13 @@ float EnginePowertrain::Update(float throttle, bool reverse, float wheelOmega, f
     // 自動変速。変速した直後は回転数がギア比の分だけ変わるので、上げと下げが往復しない。
     shiftTimer_ = std::max(0.0f, shiftTimer_ - dt);
     if (gear_ > 0 && shiftTimer_ <= 0) {
-        if (wheelRpm > upshiftRpm && gear_ < kGearCount) {
+        // ギアを固定している間も、回転の上限を越えたら上げる（上限に張り付くと駆動が出ない）。
+        float upshiftAt = holdGear ? kRedlineRpm : upshiftRpm;
+        float downshiftAt = holdGear ? 0.0f : downshiftRpm;
+        if (wheelRpm > upshiftAt && gear_ < kGearCount) {
             ++gear_;
             shiftTimer_ = kShiftTime;
-        } else if (wheelRpm < downshiftRpm && gear_ > 1) {
+        } else if (wheelRpm < downshiftAt && gear_ > 1) {
             --gear_;
             shiftTimer_ = kShiftTime;
         }

@@ -60,7 +60,7 @@ struct Car {
     void update(float dt, const DriveInput& input, const Track* track);
     // 後輪をドリフト用のタイヤにする（false でグリップ用に戻す）。前輪はグリップ用のまま。
     void UseDriftTires(bool drift);
-    bool RearDriftTires() const { return wheels[kRearLeft].tire == &rearDriftTire; }
+    bool RearDriftTires() const { return rearDriftTires_; }
     // 駆動をモーターにする（false でエンジンに戻す）。
     void UseMotor(bool motor);
     bool UsingMotor() const { return powertrain == &motor; }
@@ -85,12 +85,37 @@ struct Car {
     GripTire frontTire;
     GripTire rearGripTire;
     DriftTire rearDriftTire;
+    // ドリフト中の後輪。普段の後輪の特性を写し、μ だけ前輪の driftRearGrip 倍にする（update で毎回作り直す）。
+    GripTire driftModeTire;
+
+    // ドリフト（D1 の単走のように、横を向いたまま滑り続ける）。後輪の横滑りが driftEnterAngle を越えると入り、
+    // その間は後輪のグリップを下げ、トラクションコントロールを切り、前輪は自動で逆ハンドルを当てる。
+    // ハンドルの入力は行きたい向き、アクセルは角度の深さ（離すと driftMinAngle、全開で driftMaxAngle）になる。
+    bool driftAssist = true;         // ドリフトの状態を使うか（切ると普段の車のまま）
+    float driftEnterAngle = 0.21f;   // 入る角度（rad、約 12°）。車体の滑りの角度（進む向きと車体の向きの差）
+    float driftExitAngle = 0.10f;    // この角度より小さい時間が続くと抜ける（rad、約 6°）
+    float driftRearGrip = 0.8f;      // ドリフト中の後輪の μ / 前輪の μ
+    float driftMinAngle = 0.35f;     // アクセルを離したときに保つ角度（rad、約 20°）
+    float driftMaxAngle = 0.96f;     // アクセル全開で保つ角度（rad、約 55°）
+    float driftAngleAssist = 1.0f;   // 角度を保つために車体を回す補助の強さ
+    float driftMaxSteer = 0.96f;     // ドリフト中の逆ハンドルの最大の切れ角（rad、約 55°）
+    // 状態
+    bool drifting = false;
+    float driftAngle = 0;            // 車体の滑りの角度（rad、右へ滑るのが正。右のコーナーでは負）
     // 駆動系。エンジンとモーターのどちらかを使う。
     EnginePowertrain engine;
     MotorPowertrain motor;
     IPowertrain* powertrain = &engine;
     // 空中姿勢制御。設定（有効・無効、強さ、着地補助）はここで変える。
     AirControl airControl;
+
+private:
+    // ドリフトの状態を進め、ドリフト中の後輪と角度の補助を決める。update から呼ぶ。
+    void updateDrift(float dt, const DriveInput& input, float speed);
+
+    bool rearDriftTires_ = false;
+    float driftExitTimer_ = 0;
+    float prevDriftAngle_ = 0;
 };
 
 void buildCarBody(CpuMesh& mesh);

@@ -34,6 +34,9 @@ public:
     float finalDrive = 3.9f;      // 最終減速比
     float upshiftRpm = 7200.0f;   // この回転数を超えたら上げる
     float downshiftRpm = 3500.0f; // この回転数を下回ったら下げる
+    // true の間はギアを固定する（ドリフト中とサイドブレーキ中に Car が立てる）。後輪の空転とグリップの繰り返しで
+    // 上げ下げが続くと、変速のたびに駆動が切れて速度が落ちるため。回転の上限を越えたときだけは上げる。
+    bool holdGear = false;
 
 private:
     float ratio() const;

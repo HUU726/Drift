@@ -40,6 +40,9 @@ void TelemetryHudObject::Draw2D(System::Renderer2D& hud) {
     hud.DrawText(24, 64, 2.2f, "TEST COURSE", 0.95f, 0.8f, 0.35f, 1);
     if (car.wheels[Car::kRearLeft].handbrake) {
         hud.DrawText(250, 64, 2.2f, "HANDBRAKE", 1, 0.45f, 0.35f, 1);
+    } else if (car.drifting) {
+        std::snprintf(line, sizeof(line), "DRIFT %.0f DEG", std::fabs(car.driftAngle) * 57.2958f);
+        hud.DrawText(250, 64, 2.2f, line, 0.4f, 0.85f, 1, 1);
     }
 
     // 車体: 横滑りの速さ、ヨーレート、横の加速度（ヨーレート × 速度）、pitch と roll、空中の時間

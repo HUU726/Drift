@@ -104,6 +104,13 @@ void TuningObject::buildBasicItems() {
     add("TIRES", {"REAR/FRONT GRIP", "grip_balance", 0.6f, 1.4f, 0.02f,
                   [&car, rear] { return rear().muScale / car.frontTire.params.muScale; },
                   [&car, rear](float v) { rear().muScale = car.frontTire.params.muScale * v; }});
+    // ドリフト。ドリフト中の後輪のグリップ（前輪に対する割合）と、角度を保つ補助の強さ。
+    add("DRIFT", {"DRIFT REAR GRIP", "drift_rear_grip", 0.4f, 1.2f, 0.02f,
+                  [&car] { return car.driftRearGrip; },
+                  [&car](float v) { car.driftRearGrip = v; }});
+    add("DRIFT", {"DRIFT ANGLE ASSIST", "drift_angle_assist", 0.0f, 3.0f, 0.1f,
+                  [&car] { return car.driftAngleAssist; },
+                  [&car](float v) { car.driftAngleAssist = v; }});
     // 運転の補助（ABS、トラクションコントロール、空中の姿勢の補助、着地の補助）をまとめて切り替える。
     add("ASSISTS", {"DRIVING ASSISTS", "assists", 0, 1, 1,
                     [&car] { return car.wheels[0].antiLock ? 1.0f : 0.0f; },
@@ -249,6 +256,22 @@ void TuningObject::buildDetailItems() {
     add("BODY", {"DRAG X10000", "drag_x10000", 0, 10, 0.1f,
                  [&car] { return car.dragPerMass * 10000.0f; },
                  [&car](float v) { car.SetDrag(v / 10000.0f); }});
+    // ドリフト
+    add("DRIFT", {"DRIFT MODE", "drift_mode", 0, 1, 1,
+                  [&car] { return car.driftAssist ? 1.0f : 0.0f; },
+                  [&car](float v) { car.driftAssist = v > 0.5f; }, "OFF", "ON"});
+    add("DRIFT", {"DRIFT ENTER DEG", "drift_enter_deg", 5, 30, 1,
+                  [&car] { return car.driftEnterAngle * kRadToDeg; },
+                  [&car](float v) { car.driftEnterAngle = v / kRadToDeg; }});
+    add("DRIFT", {"DRIFT MIN DEG", "drift_min_deg", 5, 45, 1,
+                  [&car] { return car.driftMinAngle * kRadToDeg; },
+                  [&car](float v) { car.driftMinAngle = v / kRadToDeg; }});
+    add("DRIFT", {"DRIFT MAX DEG", "drift_max_deg", 20, 75, 1,
+                  [&car] { return car.driftMaxAngle * kRadToDeg; },
+                  [&car](float v) { car.driftMaxAngle = v / kRadToDeg; }});
+    add("DRIFT", {"DRIFT MAX STEER DEG", "drift_max_steer_deg", 20, 70, 1,
+                  [&car] { return car.driftMaxSteer * kRadToDeg; },
+                  [&car](float v) { car.driftMaxSteer = v / kRadToDeg; }});
 }
 
 std::string TuningObject::valueText(const Item& item) const {

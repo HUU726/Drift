@@ -98,7 +98,7 @@ float WheelCollider::limitSlip(float w, float vx, float speed, float slipAngle) 
         if (vx > 0) w = std::max(w, (vx - limit) / radius);
         if (vx < 0) w = std::min(w, (vx + limit) / radius);
     }
-    if (tractionControl && driveTorque != 0) {
+    if (tractionControl && !drifting && driveTorque != 0) {
         if (driveTorque > 0) w = std::min(w, (vx + limit) / radius);
         if (driveTorque < 0) w = std::max(w, (vx - limit) / radius);
     }

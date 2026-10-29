@@ -11,7 +11,51 @@ namespace {
 // 実際に出る加速と減速は、タイヤが路面に伝えられる力（μ × 荷重）で決まる。
 constexpr float kMaxReverse = 9.0f;     // 後退の最高速度（m/s）。ここで駆動を切る
 
+// ドリフト
+constexpr float kDriftSteerRate = 6.0f;   // 逆ハンドルを切る速さ（rad/s）。遅いと滑りの向きの変化に追いつかない
+constexpr float kDriftMinSpeed = 8.0f;    // これより遅いとドリフトに入らない（m/s）。抜けるのはこの 6 割
+constexpr float kDriftSpinAngle = 1.45f;  // これを越えたらスピンとしてドリフトをやめる（rad、約 83°）
+constexpr float kDriftExitTime = 0.3f;    // 角度が小さいままこの時間が続いたら抜ける（秒）
+constexpr float kAngleGain = 10.0f;       // 角度の補助: 目標の角度との差（rad）に掛ける角加速度（1/s²）
+constexpr float kAngleDamping = 4.0f;     // 角度の補助: 角度の変わる速さ（rad/s）に掛ける角加速度（1/s）
+
 }  // namespace
+
+void Car::updateDrift(float dt, const DriveInput& input, float speed) {
+    // 車体の滑りの角度。進む向きと車体の向きの差で、右へ滑るのが正（右のコーナーのドリフトでは負）。
+    driftAngle = speed > 1.0f ? std::atan2(body.LateralSpeed(), speed) : 0.0f;
+    float angle = std::fabs(driftAngle);
+    float angleRate = (driftAngle - prevDriftAngle_) / dt;
+    prevDriftAngle_ = driftAngle;
+    bool airborne = Airborne();
+
+    if (!drifting) {
+        drifting = driftAssist && !airborne && speed > kDriftMinSpeed && angle > driftEnterAngle && input.brake < 0.5f;
+        driftExitTimer_ = 0;
+    } else {
+        driftExitTimer_ = angle < driftExitAngle ? driftExitTimer_ + dt : 0.0f;
+        bool end = !driftAssist || speed < kDriftMinSpeed * 0.6f || driftExitTimer_ > kDriftExitTime ||
+                   angle > kDriftSpinAngle || input.brake > 0.5f;
+        drifting = !end;
+    }
+
+    // ドリフト中の後輪。普段の後輪の特性のまま、μ だけ前輪の driftRearGrip 倍にする。
+    driftModeTire.params = rearDriftTires_ ? rearDriftTire.params : rearGripTire.params;
+    driftModeTire.params.muScale = frontTire.params.muScale * driftRearGrip;
+
+    // 角度の補助。アクセルを踏んでいる間は、踏み込みに応じた角度へ車体を回す（深すぎれば戻す）。
+    // アクセルを離すと、角度の変わる速さだけを抑え、車が自然にまっすぐへ戻るのを待つ。
+    if (drifting && !airborne && driftAngleAssist > 0) {
+        float side = driftAngle < 0 ? -1.0f : 1.0f;
+        float accel = -kAngleDamping * side * angleRate;
+        if (input.throttle > 0.05f) {
+            float target = driftMinAngle + (driftMaxAngle - driftMinAngle) * clampf(input.throttle, 0.0f, 1.0f);
+            accel += kAngleGain * (target - angle);
+        }
+        // 角度を深くするには、滑る向きと逆へ車体を回す（右のコーナーでは右回り = ヨーが正）。
+        body.AddTorque(-side * accel * driftAngleAssist * body.inertiaYaw, 0, 0, dt);
+    }
+}
 
 Car::Car() {
     using namespace VehicleSpec;
@@ -49,9 +93,8 @@ Car::Car() {
 }
 
 void Car::UseDriftTires(bool drift) {
-    const ITireModel* rear = drift ? static_cast<const ITireModel*>(&rearDriftTire) : &rearGripTire;
-    wheels[kRearLeft].tire = rear;
-    wheels[kRearRight].tire = rear;
+    // 車輪に付けるのは update（ドリフト中は driftModeTire に替える）。
+    rearDriftTires_ = drift;
 }
 
 void Car::SetMass(float newMass) {
@@ -115,6 +158,10 @@ void Car::Place(Vec3 origin, float yaw) {
     }
     steerAngle = 0;
     brakeHold = 0;
+    drifting = false;
+    driftAngle = 0;
+    driftExitTimer_ = 0;
+    prevDriftAngle_ = 0;
     powertrain->Reset();
     airControl.Reset();
     ground = TrackPose{};
@@ -140,20 +187,39 @@ Vec3 Car::WheelCenter(int wheel) const {
 
 void Car::update(float dt, const DriveInput& input, const Track* track) {
     float speed = body.ForwardSpeed();
-    // 最大の切れ角は、速度が上がるほど小さくする（高速で切りすぎない）。
-    float maxSteerNow = maxSteer / (1.0f + std::fabs(speed) * steerSpeedFalloff);
-    float target = clampf(input.steer, -1.0f, 1.0f) * maxSteerNow;
-    float step = steerRate * dt;
-    steerAngle += clampf(target - steerAngle, -step, step);
-    steerAngle = clampf(steerAngle, -maxSteer, maxSteer);
-    // ハンドルの補助。前輪の滑りの角度（進む向きと車輪の向きの差）がピークを越えないように切れ角を抑え、
-    // ハンドルを切っただけではタイヤが滑らないようにする。車が横に滑っているときは、進む向きへの逆ハンドルは切れる。
-    if (steerAssist && std::fabs(speed) > 3.0f) {
-        Vec3 frontAxle = body.ToWorld(Vec3{0, wheels[kFrontLeft].mount.y, wheels[kFrontLeft].mount.z});
-        Vec3 v = body.VelocityAt(frontAxle);
-        float travel = std::atan2(dot(v, body.Right()), std::fabs(dot(v, body.Forward())));
-        float limit = frontTire.PeakSlipAngle() * steerAssistShare;
-        steerAngle = clampf(steerAngle, travel - limit, travel + limit);
+    updateDrift(dt, input, speed);
+
+    // 前の車軸が進む向き（車体から見た角度、右が正）。前輪をこの向きにそろえると、前輪は横に滑らない。
+    Vec3 frontAxle = body.ToWorld(Vec3{0, wheels[kFrontLeft].mount.y, wheels[kFrontLeft].mount.z});
+    Vec3 frontVelocity = body.VelocityAt(frontAxle);
+    float frontTravel = std::atan2(dot(frontVelocity, body.Right()), std::fabs(dot(frontVelocity, body.Forward())));
+    float slipLimit = frontTire.PeakSlipAngle() * steerAssistShare;
+    if (drifting) {
+        // 自動の逆ハンドル。前輪を進む向きにそろえ、ハンドルの入力の分だけ（ピークの滑りの角度まで）内へ切る。
+        // ハンドルの入力は、行きたい向きへ前輪の横の力を出すことになる。
+        float target = frontTravel + clampf(input.steer, -1.0f, 1.0f) * slipLimit;
+        float step = kDriftSteerRate * dt;
+        steerAngle += clampf(target - steerAngle, -step, step);
+        steerAngle = clampf(steerAngle, -driftMaxSteer, driftMaxSteer);
+    } else {
+        // 最大の切れ角は、速度が上がるほど小さくする（高速で切りすぎない）。
+        float maxSteerNow = maxSteer / (1.0f + std::fabs(speed) * steerSpeedFalloff);
+        float target = clampf(input.steer, -1.0f, 1.0f) * maxSteerNow;
+        float step = steerRate * dt;
+        // ドリフトから抜けた直後は逆ハンドルが大きく残っているので、戻す間は速く戻す。
+        if (std::fabs(steerAngle) > maxSteer) {
+            step = kDriftSteerRate * dt;
+        }
+        steerAngle += clampf(target - steerAngle, -step, step);
+        // ハンドルの補助。前輪の滑りの角度（進む向きと車輪の向きの差）がピークを越えないように切れ角を抑え、
+        // ハンドルを切っただけではタイヤが滑らないようにする。車が横に滑っているときは、進む向きへの逆ハンドルは切れる。
+        if (steerAssist && std::fabs(speed) > 3.0f) {
+            steerAngle = clampf(steerAngle, frontTravel - slipLimit, frontTravel + slipLimit);
+        }
+        steerAngle = clampf(steerAngle, -driftMaxSteer, driftMaxSteer);
+        if (std::fabs(steerAngle) <= maxSteer + step) {
+            steerAngle = clampf(steerAngle, -maxSteer, maxSteer);
+        }
     }
 
     // 止まってブレーキを押し続けると後退に入る。後退に入った後は、速度が出てもブレーキを離すまで後退を続ける。
@@ -180,6 +246,8 @@ void Car::update(float dt, const DriveInput& input, const Track* track) {
         brake = input.throttle * brakeDecel;  // 後ろへ動いている間のアクセルはブレーキとして効く
     }
     float rearOmega = 0.5f * (wheels[kRearLeft].omega + wheels[kRearRight].omega);
+    // ドリフト中とサイドブレーキ中はギアを固定する。サイドブレーキで後輪が止まると、回転数が下がって 1 速まで落ちるため。
+    engine.holdGear = drifting || input.handbrake;
     float axleTorque = powertrain->Update(throttle, reversing, rearOmega, dt);
 
     // 駆動は後輪の左右に均等（オープンデフ）、ブレーキは前 6 : 後 4。サイドブレーキは後輪だけ。
@@ -188,6 +256,10 @@ void Car::update(float dt, const DriveInput& input, const Track* track) {
         WheelCollider& wheel = wheels[i];
         bool front = i < kRearLeft;
         wheel.steer = front ? steerAngle : 0.0f;
+        if (!front) {
+            wheel.tire = drifting ? &driftModeTire : (rearDriftTires_ ? static_cast<const ITireModel*>(&rearDriftTire) : &rearGripTire);
+            wheel.drifting = drifting;
+        }
         float driveTorque = front ? 0.0f : axleTorque * 0.5f;
         float brakeTorque = mass * brake * radius * 0.5f * (front ? brakeFrontShare : 1.0f - brakeFrontShare);
         // サイドブレーキは後輪だけに掛け、ABS を効かせずにロックさせる。掛けている間は駆動を切る（クラッチを切る）。

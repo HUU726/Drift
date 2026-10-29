@@ -2,6 +2,7 @@
 
 #include "GameObject/RampObject.h"
 #include "Physics/BoxCollider.h"
+#include "Physics/PhysicsMaterial.h"
 #include "Physics/RampCollider.h"
 #include "Physics/TrackCollider.h"
 #include "System/ColliderManager.h"
@@ -610,6 +611,77 @@ int steerTest() {
     return 0;
 }
 
+struct DriftResult {
+    float minAngle = 1e9f;   // 保っている間の車体の滑りの角度の最小（rad）
+    float maxAngle = 0;      // 最大（rad）
+    bool heldAll = true;     // 保つ間ずっとドリフトの状態だったか
+    float endSpeed = 0;      // 最後の速度（km/h）
+    bool endedStraight = false;  // アクセルを離した後、ドリフトを抜けたか
+};
+
+// 速度 kmh から、左へハンドルを切りながら 0.5 秒サイドブレーキを掛けて向きを変え、
+// アクセル throttle、ハンドルはまっすぐで holdSeconds 保つ。その後アクセルを離して 3 秒待つ。
+DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) {
+    CourseRig rig;
+    rig.course.ground.baseMaterial = &Materials::kAsphalt;  // 平面の外へ出てもアスファルトで続ける
+    rig.Launch(0.0f, -40.0f, kmh / 3.6f);
+    Car& car = rig.car;
+    DriftResult result;
+    const int entry = 30;
+    const int hold = entry + static_cast<int>(holdSeconds * 60);
+    std::printf("self-test drift %3.0f km/h throttle %.1f steer %4.1f:", kmh, throttle, steer);
+    for (int step = 0; step < hold + 180; ++step) {
+        DriveInput input;
+        if (step < entry) {
+            input.steer = -1;
+            input.handbrake = true;
+        } else if (step < hold) {
+            input.throttle = throttle;
+            input.steer = steer;
+        }
+        rig.Step(input);
+        // 入ってから 1 秒後から、保てているかを見る。
+        if (step >= entry + 60 && step < hold) {
+            float angle = std::fabs(car.driftAngle);
+            result.minAngle = std::min(result.minAngle, angle);
+            result.maxAngle = std::max(result.maxAngle, angle);
+            result.heldAll = result.heldAll && car.drifting;
+        }
+        if (step % 30 == 29) {
+            std::printf(" %3.0f%s/%3.0f", car.driftAngle * 57.3f, car.drifting ? "d" : " ", car.ForwardSpeed() * 3.6f);
+        }
+        if (step == hold - 1) {
+            result.endSpeed = car.ForwardSpeed() * 3.6f;
+        }
+    }
+    result.endedStraight = !car.drifting && std::fabs(car.driftAngle) < 0.1f;
+    std::printf("\n");
+    return result;
+}
+
+// ドリフトを保てること。サイドブレーキで向きを変えた後、アクセルを踏んだまま 4 秒、角度と速度を保ち、
+// アクセルを離すとまっすぐに戻ること。
+int driftTest() {
+    for (float kmh : {80.0f, 100.0f, 120.0f}) {
+        for (float throttle : {0.5f, 1.0f}) {
+            DriftResult r = driftRun(kmh, throttle, 0.0f, 4.0f);
+            std::printf("self-test drift   angle %.0f..%.0f deg held %d end %.0f km/h straight %d\n", r.minAngle * 57.3f,
+                        r.maxAngle * 57.3f, r.heldAll ? 1 : 0, r.endSpeed, r.endedStraight ? 1 : 0);
+            if (!r.heldAll || !r.endedStraight) return 24;
+            // アクセル半分なら浅く（12〜35°）、全開なら深く（30〜55°）。全開でも入った速度の 6 割は保つ。
+            float low = throttle < 0.75f ? 12.0f : 30.0f;
+            float high = throttle < 0.75f ? 35.0f : 55.0f;
+            if (r.minAngle < low / 57.3f || r.maxAngle > high / 57.3f) return 25;
+            if (r.endSpeed < kmh * 0.6f) return 26;
+        }
+    }
+    // ハンドルの入力で角度が変わること（コーナーの内へ切ると深く、外へ切ると浅く）。
+    DriftResult inside = driftRun(100.0f, 1.0f, -1.0f, 4.0f);
+    DriftResult outside = driftRun(100.0f, 1.0f, 1.0f, 4.0f);
+    if (!inside.heldAll || !outside.heldAll || inside.minAngle <= outside.maxAngle) return 27;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -645,5 +717,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return steerTest();
+    result = steerTest();
+    if (result != 0) {
+        return result;
+    }
+    return driftTest();
 }

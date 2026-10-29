@@ -30,13 +30,17 @@ struct TrackSample {
     bool bridge = false;
 };
 
-// 鈴鹿サーキット。中心線は OSM、高さは国土地理院の標高。
+// コースの中心線と、そこから作る路面・壁・見た目。
+// 鈴鹿サーキットはファイルから読む（中心線は OSM、高さは国土地理院の標高）。峠は TougeCourse がプログラムで作る。
 struct Track {
     float originLat = 0;
     float originLon = 0;
     float halfWidth = 6.5f;
     float curbWidth = 0.8f;
     float runoff = 8.0f;
+    // 峠の見た目にする。縁石の代わりに側溝と白線と中央線、芝の代わりに砂利の路肩、
+    // コンクリートの壁の代わりにガードレールを描き、まわりに山の地形と木を置く。
+    bool mountain = false;
     float length = 0;
     float spawnX = 0;
     float spawnY = 0;
@@ -47,6 +51,8 @@ struct Track {
     CpuMesh visual;
 
     bool load(const std::string& path);
+    // samples（x, z, y, cross, corner, nameId）と spawn を入れた後に呼ぶ。高さを直し、周回位置を付け、見た目を作る。
+    bool build();
     // preferS が 0 以上のときは、その周回位置に近い路面を優先する。立体交差で上下を取り違えない。
     TrackPose query(float x, float z, float yHint, float preferS = -1.0f) const;
     // preferS の前後 kLocalWindow（m）の区間だけを調べる。1 ステップに何度も呼ぶ物理用。

@@ -3,6 +3,7 @@
 #include "Scene/Scene.h"
 #include "System/ColliderManager.h"
 #include "System/Context.h"
+#include "TougeCourse.h"
 
 #include <cstdio>
 #include <fstream>
@@ -23,10 +24,17 @@ std::string TrackObject::FindPath() {
 }
 
 bool TrackObject::Init() {
-    std::string path = FindPath();
-    if (!track_.load(path)) {
-        std::fprintf(stderr, "コースを読めません: %s\n", path.c_str());
-        return false;
+    if (which_ == Course::Touge) {
+        if (!BuildTougeCourse(track_)) {
+            std::fprintf(stderr, "峠のコースを作れません\n");
+            return false;
+        }
+    } else {
+        std::string path = FindPath();
+        if (!track_.load(path)) {
+            std::fprintf(stderr, "コースを読めません: %s\n", path.c_str());
+            return false;
+        }
     }
     course_ = scene_.Ctx().renderer3D.Upload(track_.visual);
     collider_.owner = this;

@@ -7,6 +7,7 @@
 #include "Physics/TrackCollider.h"
 #include "System/ColliderManager.h"
 #include "TestCourse.h"
+#include "TougeCourse.h"
 #include "Vehicle/Powertrain.h"
 #include "Vehicle/VehicleSpec.h"
 #include "car.hpp"
@@ -703,6 +704,125 @@ int driftTest() {
     return 0;
 }
 
+// 中心線の上で、周回位置 s の点。
+Vec3 centerAt(const Track& track, float s) {
+    s = std::fmod(s, track.length);
+    if (s < 0) {
+        s += track.length;
+    }
+    const int n = static_cast<int>(track.samples.size());
+    auto it = std::upper_bound(track.samples.begin(), track.samples.end(), s,
+                               [](float value, const TrackSample& sample) { return value < sample.s; });
+    int i = std::max(0, static_cast<int>(it - track.samples.begin()) - 1);
+    const TrackSample& a = track.samples[i];
+    const TrackSample& b = track.samples[(i + 1) % n];
+    float next = i + 1 < n ? b.s : track.length;
+    float t = next > a.s ? (s - a.s) / (next - a.s) : 0.0f;
+    return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+}
+
+// 峠のコース。形（つながっている、道どうしが近づきすぎない、急すぎない）と、自動運転で 1 周走れることを確かめる。
+int tougeTest() {
+    Track track;
+    if (!BuildTougeCourse(track)) return 40;
+    const int n = static_cast<int>(track.samples.size());
+    float maxGrade = 0;
+    float maxGap = 0;
+    float minClearance = 1e9f;
+    for (int i = 0; i < n; ++i) {
+        const TrackSample& a = track.samples[i];
+        const TrackSample& b = track.samples[(i + 1) % n];
+        float run = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z));
+        maxGap = std::max(maxGap, run);
+        maxGrade = std::max(maxGrade, std::fabs(b.y - a.y) / std::max(run, 0.01f));
+        // 周回で 80 m 以上離れた点どうしの、平面の距離。ガードレールの外どうしが重ならないこと。
+        for (int j = i + 1; j < n; ++j) {
+            float along = std::fabs(track.samples[j].s - a.s);
+            along = std::min(along, track.length - along);
+            if (along < 80.0f) continue;
+            const TrackSample& c = track.samples[j];
+            minClearance = std::min(minClearance, std::sqrt((c.x - a.x) * (c.x - a.x) + (c.z - a.z) * (c.z - a.z)));
+        }
+    }
+    std::printf("self-test touge length %.0f samples %d max gap %.1f m max grade %.1f%% min clearance %.1f m\n",
+                track.length, n, maxGap, maxGrade * 100.0f, minClearance);
+    if (maxGap > 6.0f) return 41;
+    if (maxGrade > 0.11f) return 42;
+    if (minClearance < 2.0f * track.wallLateral() + 2.0f) return 43;
+
+    // 曲がりの半径から出せる速さ（横の加速度 10 m/s²）を決め、止まれる減速（7 m/s²）で手前から下げる。
+    std::vector<float> limit(n);
+    for (int i = 0; i < n; ++i) {
+        const TrackSample& p = track.samples[(i + n - 3) % n];
+        const TrackSample& q = track.samples[i];
+        const TrackSample& r = track.samples[(i + 3) % n];
+        float a = std::hypot(q.x - p.x, q.z - p.z);
+        float b = std::hypot(r.x - q.x, r.z - q.z);
+        float c = std::hypot(r.x - p.x, r.z - p.z);
+        float area2 = std::fabs((q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x));
+        float radius = area2 > 1e-3f ? a * b * c / (2.0f * area2) : 1e4f;
+        limit[i] = std::min(40.0f, std::sqrt(10.0f * radius));
+    }
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int k = 2 * n - 1; k >= 0; --k) {
+            int i = k % n;
+            int j = (i + 1) % n;
+            float ds = std::hypot(track.samples[j].x - track.samples[i].x, track.samples[j].z - track.samples[i].z);
+            limit[i] = std::min(limit[i], std::sqrt(limit[j] * limit[j] + 2.0f * 7.0f * ds));
+        }
+    }
+
+    Rig rig(track);
+    Car& car = rig.car;
+    float travelled = 0;
+    float prevS = -1;
+    float maxLat = 0;
+    float air = 0;
+    float maxAir = 0;
+    int steps = 0;
+    for (; steps < 60 * 240 && travelled < track.length; ++steps) {
+        TrackPose pose = track.queryLocal(car.body.position.x, car.body.position.z, car.Origin().y,
+                                          car.ground.found ? car.ground.s : -1.0f);
+        float speed = std::max(car.ForwardSpeed(), 0.0f);
+        // 少し先の中心線の点へハンドルを向ける。
+        Vec3 target = centerAt(track, pose.s + 8.0f + speed * 0.35f);
+        float aim = wrapPi(std::atan2(target.x - car.body.position.x, target.z - car.body.position.z) - car.body.yaw);
+        auto it = std::upper_bound(track.samples.begin(), track.samples.end(), pose.s,
+                                   [](float value, const TrackSample& sample) { return value < sample.s; });
+        int index = std::max(0, static_cast<int>(it - track.samples.begin()) - 1);
+        float want = limit[(index + 2) % n];
+        DriveInput input;
+        input.steer = clampf(aim * 3.0f, -1.0f, 1.0f);
+        if (speed > want + 0.5f) {
+            input.brake = clampf((speed - want) / 3.0f, 0.2f, 1.0f);
+        } else {
+            input.throttle = clampf((want - speed) / 3.0f + 0.3f, 0.0f, 1.0f);
+        }
+        rig.Step(input, track);
+        if (prevS >= 0) {
+            float ds = car.ground.s - prevS;
+            if (ds < -track.length * 0.5f) ds += track.length;
+            if (ds > track.length * 0.5f) ds -= track.length;
+            if (ds > 0) travelled += ds;
+        }
+        prevS = car.ground.s;
+        maxLat = std::max(maxLat, std::fabs(pose.lateral));
+        bool airborne = true;
+        for (const WheelCollider& w : car.wheels) {
+            airborne = airborne && !w.grounded;
+        }
+        air = airborne ? air + kStep : 0.0f;
+        maxAir = std::max(maxAir, air);
+        if (!std::isfinite(car.body.position.x) || !std::isfinite(car.ForwardSpeed())) return 44;
+    }
+    std::printf("self-test touge lap %.1f s travelled %.0f m max lateral %.1f m airtime %.2f s\n", steps * kStep,
+                travelled, maxLat, maxAir);
+    if (travelled < track.length) return 45;
+    if (maxLat > track.halfWidth + track.curbWidth) return 46;
+    if (maxAir > 0.2f) return 47;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -742,5 +862,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return driftTest();
+    result = driftTest();
+    if (result != 0) {
+        return result;
+    }
+    return tougeTest();
 }

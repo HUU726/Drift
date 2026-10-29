@@ -13,8 +13,12 @@
 #include "System/SceneManager.h"
 
 bool RaceScene::Init() {
-    Add<TrackObject>();
-    Add<RampObject>();
+    TrackObject* track = Add<TrackObject>();
+    if (touge_) {
+        track->SetCourse(TrackObject::Course::Touge);
+    } else {
+        Add<RampObject>();
+    }
     car_ = Add<CarObject>();
     timer_ = Add<RaceTimerObject>();
     camera_ = Add<CameraObject>();

@@ -1,6 +1,7 @@
 #include "track.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -240,6 +241,162 @@ void addGround(CpuMesh& mesh, const Track& track) {
     mesh.addQuad(a, d, c, b, {0, 1, 0}, color);
 }
 
+// 0..1 の決まった乱数（地形の色と木の置き方に使う）。
+float hash01(int x, int y) {
+    std::uint32_t h = static_cast<std::uint32_t>(x) * 73856093u ^ static_cast<std::uint32_t>(y) * 19349663u;
+    h ^= h >> 13;
+    h *= 0x5bd1e995u;
+    h ^= h >> 15;
+    return float(h & 0xffffu) / 65535.0f;
+}
+
+// 峠のまわりの山。格子の各点の高さを、どの路面よりも下になるように決める（路面から離れるほど上がる斜面の、
+// いちばん低いもの）。つづら折りで上下に重なる道では、下の道に合わせて低くなり、上の道は崖の上を通る。
+// 路面から遠い点には木を置く。
+void addTerrain(CpuMesh& mesh, const Track& track) {
+    constexpr float kCell = 12.0f;      // 格子の間隔（m）
+    constexpr float kPad = 260.0f;      // コースの外側に広げる幅（m）
+    constexpr float kBelowRoad = 1.2f;  // 路肩のすぐ外で、路面より下げる高さ（m）
+    constexpr float kRise = 0.32f;      // 路面から離れるほど上がる斜面の傾き
+    float minX = track.samples[0].x;
+    float maxX = minX;
+    float minZ = track.samples[0].z;
+    float maxZ = minZ;
+    float maxY = track.samples[0].y;
+    for (const TrackSample& sample : track.samples) {
+        minX = std::min(minX, sample.x);
+        maxX = std::max(maxX, sample.x);
+        minZ = std::min(minZ, sample.z);
+        maxZ = std::max(maxZ, sample.z);
+        maxY = std::max(maxY, sample.y);
+    }
+    const int nx = static_cast<int>((maxX - minX + 2 * kPad) / kCell) + 1;
+    const int nz = static_cast<int>((maxZ - minZ + 2 * kPad) / kCell) + 1;
+    const float edge = track.wallLateral() + 0.5f;
+    std::vector<float> height(nx * nz);
+    std::vector<float> roadDist(nx * nz);
+    for (int iz = 0; iz < nz; ++iz) {
+        for (int ix = 0; ix < nx; ++ix) {
+            float x = minX - kPad + ix * kCell;
+            float z = minZ - kPad + iz * kCell;
+            float h = maxY + 45.0f;
+            float nearest = 1e9f;
+            for (const TrackSample& sample : track.samples) {
+                float d = std::sqrt((x - sample.x) * (x - sample.x) + (z - sample.z) * (z - sample.z));
+                nearest = std::min(nearest, d);
+                h = std::min(h, sample.y - kBelowRoad + kRise * std::max(0.0f, d - edge));
+            }
+            height[iz * nx + ix] = h;
+            roadDist[iz * nx + ix] = nearest;
+        }
+    }
+    auto at = [&](int ix, int iz) {
+        return Vec3{minX - kPad + ix * kCell, height[iz * nx + ix], minZ - kPad + iz * kCell};
+    };
+    for (int iz = 0; iz + 1 < nz; ++iz) {
+        for (int ix = 0; ix + 1 < nx; ++ix) {
+            Vec3 a = at(ix, iz);
+            Vec3 b = at(ix + 1, iz);
+            Vec3 c = at(ix + 1, iz + 1);
+            Vec3 d = at(ix, iz + 1);
+            Vec3 normal = normalize(cross(d - a, b - a));
+            if (normal.y < 0) {
+                normal = normal * -1.0f;
+            }
+            float shade = 0.85f + 0.2f * hash01(ix, iz);
+            // 急な斜面は土の色に寄せる。
+            float steep = clampf((0.9f - normal.y) * 3.0f, 0.0f, 1.0f);
+            Vec3 grass{0.13f * shade, 0.27f * shade, 0.11f * shade};
+            Vec3 soil{0.30f * shade, 0.26f * shade, 0.18f * shade};
+            mesh.addQuad(a, b, c, d, normal, grass + (soil - grass) * steep);
+        }
+    }
+    // 木（細長い四角錐）。路面から離れた格子点の近くに、決まった乱数で置く。
+    for (int iz = 1; iz + 1 < nz; ++iz) {
+        for (int ix = 1; ix + 1 < nx; ++ix) {
+            float dist = roadDist[iz * nx + ix];
+            if (dist < edge + 6.0f || dist > 220.0f || hash01(ix + 91, iz + 17) > 0.55f) {
+                continue;
+            }
+            Vec3 base = at(ix, iz) + Vec3{(hash01(ix, iz + 5) - 0.5f) * 6.0f, -0.5f, (hash01(ix + 3, iz) - 0.5f) * 6.0f};
+            float tall = 8.0f + 7.0f * hash01(ix + 7, iz + 11);
+            float radius = 2.2f + 1.4f * hash01(ix + 13, iz + 2);
+            Vec3 top = base + Vec3{0, tall, 0};
+            Vec3 lift{0, 1.5f, 0};
+            Vec3 corner[4] = {base + Vec3{-radius, 0, -radius} + lift, base + Vec3{radius, 0, -radius} + lift,
+                              base + Vec3{radius, 0, radius} + lift, base + Vec3{-radius, 0, radius} + lift};
+            float shade = 0.8f + 0.3f * hash01(ix + 29, iz + 31);
+            Vec3 color{0.07f * shade, 0.20f * shade, 0.09f * shade};
+            for (int k = 0; k < 4; ++k) {
+                Vec3 a = corner[k];
+                Vec3 b = corner[(k + 1) % 4];
+                Vec3 normal = normalize(cross(b - a, top - a));
+                Vec3 outward = (a + b) * 0.5f - base;
+                if (dot(normal, outward) < 0) {
+                    normal = normal * -1.0f;
+                }
+                mesh.addTriangle(a, b, top, normal, color);
+            }
+            // 幹
+            Vec3 trunk{0.28f, 0.2f, 0.12f};
+            mesh.addQuad(base + Vec3{-0.3f, 0, 0}, base + Vec3{0.3f, 0, 0}, base + Vec3{0.3f, 1.6f, 0},
+                         base + Vec3{-0.3f, 1.6f, 0}, {0, 0, 1}, trunk);
+            mesh.addQuad(base + Vec3{0, 0, -0.3f}, base + Vec3{0, 0, 0.3f}, base + Vec3{0, 1.6f, 0.3f},
+                         base + Vec3{0, 1.6f, -0.3f}, {1, 0, 0}, trunk);
+        }
+    }
+}
+
+// 峠の路面の白線。両端の外側線（実線）と中央線（破線）。
+void addRoadMarkings(CpuMesh& mesh, const Track& track) {
+    const int n = static_cast<int>(track.samples.size());
+    const Vec3 white{0.85f, 0.85f, 0.82f};
+    const Vec3 lift{0, 0.02f, 0};
+    auto stripe = [&](int i, float lat0, float lat1) {
+        int j = (i + 1) % n;
+        Vec3 normal = normalize(roadNormal(track, i) + roadNormal(track, j));
+        mesh.addQuad(onRoad(track, i, lat0) + lift, onRoad(track, i, lat1) + lift, onRoad(track, j, lat1) + lift,
+                     onRoad(track, j, lat0) + lift, normal, white);
+    };
+    for (int i = 0; i < n; ++i) {
+        float edge = track.halfWidth - 0.25f;
+        stripe(i, -edge - 0.15f, -edge);
+        stripe(i, edge, edge + 0.15f);
+        if ((static_cast<int>(track.samples[i].s / 5.0f) % 2) == 0) {
+            stripe(i, -0.07f, 0.07f);
+        }
+    }
+}
+
+// 峠のガードレール。路肩の外側に、支柱と波形の板（白っぽい帯）を立てる。当たり判定は壁と同じ位置。
+void addGuardrails(CpuMesh& mesh, const Track& track) {
+    const int n = static_cast<int>(track.samples.size());
+    const float lateral = track.wallLateral();
+    const Vec3 rail{0.80f, 0.81f, 0.80f};
+    const Vec3 post{0.45f, 0.46f, 0.48f};
+    for (int side = -1; side <= 1; side += 2) {
+        float sign = float(side);
+        float edge = sign * (track.halfWidth + track.curbWidth);
+        for (int i = 0; i < n; ++i) {
+            int j = (i + 1) % n;
+            Vec3 a = onRoad(track, i, sign * lateral);
+            Vec3 b = onRoad(track, j, sign * lateral);
+            a.y = track.samples[i].y + edge * track.samples[i].cross;
+            b.y = track.samples[j].y + edge * track.samples[j].cross;
+            Vec3 inward{-sign * horizontalRight(track, i).x, 0, -sign * horizontalRight(track, i).z};
+            mesh.addQuad(a + Vec3{0, 0.45f, 0}, b + Vec3{0, 0.45f, 0}, b + Vec3{0, 0.8f, 0}, a + Vec3{0, 0.8f, 0}, inward, rail);
+            // 支柱は 2 点ごと（約 8 m 間隔）。
+            if (i % 2 == 0) {
+                Vec3 out = inward * -0.25f;
+                Vec3 along = normalize(b - a) * 0.08f;
+                along.y = 0;
+                mesh.addQuad(a + out - along, a + out + along, a + out + along + Vec3{0, 0.75f, 0},
+                             a + out - along + Vec3{0, 0.75f, 0}, inward, post);
+            }
+        }
+    }
+}
+
 // 区間 i（samples[i] から次の点まで）の傾き（高さの変化 / 水平の距離）。
 float slopeOf(const std::vector<TrackSample>& samples, int i) {
     const int n = static_cast<int>(samples.size());
@@ -379,6 +536,14 @@ bool Track::load(const std::string& path) {
         }
     }
 
+    if (!build()) {
+        return false;
+    }
+    addPit(visual, pit);
+    return true;
+}
+
+bool Track::build() {
     if (samples.size() < 16) {
         return false;
     }
@@ -398,15 +563,24 @@ bool Track::load(const std::string& path) {
     }
 
     visual = CpuMesh{};
-    addGround(visual, *this);
     const float curbOuter = halfWidth + curbWidth;
     const float grassOuter = curbOuter + runoff;
-    addRibbon(visual, *this, -grassOuter, -curbOuter, {0.15f, 0.36f, 0.14f}, true);
-    addRibbon(visual, *this, curbOuter, grassOuter, {0.15f, 0.36f, 0.14f}, true);
-    addRibbon(visual, *this, -halfWidth, halfWidth, {0.17f, 0.17f, 0.19f}, false);
-    addCurbs(visual, *this);
-    addWalls(visual, *this);
-    addPit(visual, pit);
+    if (mountain) {
+        addTerrain(visual, *this);
+        const Vec3 gravel{0.36f, 0.34f, 0.30f};
+        addRibbon(visual, *this, -grassOuter, -curbOuter, gravel, true);
+        addRibbon(visual, *this, curbOuter, grassOuter, gravel, true);
+        addRibbon(visual, *this, -halfWidth, halfWidth, {0.20f, 0.20f, 0.22f}, false);
+        addRoadMarkings(visual, *this);
+        addGuardrails(visual, *this);
+    } else {
+        addGround(visual, *this);
+        addRibbon(visual, *this, -grassOuter, -curbOuter, {0.15f, 0.36f, 0.14f}, true);
+        addRibbon(visual, *this, curbOuter, grassOuter, {0.15f, 0.36f, 0.14f}, true);
+        addRibbon(visual, *this, -halfWidth, halfWidth, {0.17f, 0.17f, 0.19f}, false);
+        addCurbs(visual, *this);
+        addWalls(visual, *this);
+    }
     addStartLine(visual, *this);
     return true;
 }

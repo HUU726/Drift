@@ -28,6 +28,7 @@ add_executable(racegame
     src/Application.cpp
     src/SelfTest.cpp
     src/TestCourse.cpp
+    src/TougeCourse.cpp
     src/track.cpp
     src/car.cpp
     src/System/GlCommon.cpp

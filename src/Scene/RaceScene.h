@@ -18,9 +18,17 @@ protected:
     void OnStartUpdate(float dt) override;
     void GetView(Mat4& viewProj, Vec3& eye) const override;
 
+    bool touge_ = false;  // 鈴鹿の代わりに峠のコースを走る（ジャンプ台は置かない）
+
 private:
     CarObject* car_ = nullptr;
     RaceTimerObject* timer_ = nullptr;
     CameraObject* camera_ = nullptr;
     bool paused_ = false;
+};
+
+// 峠。山頂から下ってヘアピンを抜け、谷から登って戻る 1 周を、レースと同じ HUD とラップ計測で走る。
+class TougeScene : public RaceScene {
+public:
+    explicit TougeScene(System::Context& ctx) : RaceScene(ctx) { touge_ = true; }
 };

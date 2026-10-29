@@ -13,6 +13,7 @@ bool SceneSelectObject::Init() {
     System::SceneManager& scenes = scene_.Ctx().scenes;
     entries_ = {
         {"RACE", "LAP THE CIRCUIT", [&scenes] { scenes.Change<RaceScene>(); }},
+        {"TOUGE", "MOUNTAIN PASS  HAIRPINS AND SWEEPERS FOR DRIFTING", [&scenes] { scenes.Change<TougeScene>(); }},
         {"TEST COURSE", "DEBUG AND TUNE THE CAR  (TAB TUNING)", [&scenes] { scenes.Change<TestScene>(); }},
     };
     if (selected_ >= static_cast<int>(entries_.size())) {

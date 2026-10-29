@@ -111,6 +111,10 @@ void TuningObject::buildBasicItems() {
     add("DRIFT", {"DRIFT ANGLE ASSIST", "drift_angle_assist", 0.0f, 3.0f, 0.1f,
                   [&car] { return car.driftAngleAssist; },
                   [&car](float v) { car.driftAngleAssist = v; }});
+    // ドリフト中にスティックを倒しきったときの曲がり（進む向きが 1 秒に回る角度）。
+    add("DRIFT", {"DRIFT CURVE DEG/S", "drift_curve_deg_s", 0, 90, 1,
+                  [&car] { return car.driftCurveRate * kRadToDeg; },
+                  [&car](float v) { car.driftCurveRate = v / kRadToDeg; }});
     // 運転の補助（ABS、トラクションコントロール、空中の姿勢の補助、着地の補助）をまとめて切り替える。
     add("ASSISTS", {"DRIVING ASSISTS", "assists", 0, 1, 1,
                     [&car] { return car.wheels[0].antiLock ? 1.0f : 0.0f; },
@@ -272,6 +276,9 @@ void TuningObject::buildDetailItems() {
     add("DRIFT", {"DRIFT MAX STEER DEG", "drift_max_steer_deg", 20, 70, 1,
                   [&car] { return car.driftMaxSteer * kRadToDeg; },
                   [&car](float v) { car.driftMaxSteer = v / kRadToDeg; }});
+    add("DRIFT", {"DRIFT CURVE ASSIST", "drift_curve_assist", 0, 4, 0.1f,
+                  [&car] { return car.driftCurveAssist; },
+                  [&car](float v) { car.driftCurveAssist = v; }});
 }
 
 std::string TuningObject::valueText(const Item& item) const {

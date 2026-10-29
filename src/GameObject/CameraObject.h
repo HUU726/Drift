@@ -24,6 +24,7 @@ private:
     const CarObject* car_ = nullptr;
     Vec3 eye_{0, 8, -12};
     Vec3 look_{0, 0, 0};
+    float travelShare_ = 0;  // 車の向きから進む向きへ寄せている割合（ドリフトの出入りでゆっくり変える）
     bool ready_ = false;
     int mode_ = 0;
 };

@@ -617,6 +617,7 @@ struct DriftResult {
     bool heldAll = true;     // 保つ間ずっとドリフトの状態だったか
     float endSpeed = 0;      // 最後の速度（km/h）
     bool endedStraight = false;  // サイドブレーキとアクセルを離した後、ドリフトを抜けてまっすぐに戻ったか
+    float curveRate = 0;     // 保っている間に進む向きが回った速さの平均（deg/s、右が正）
 };
 
 // 速度 kmh から、左へハンドルを切りながらサイドブレーキを押して向きを変え（0.5 秒）、
@@ -630,6 +631,8 @@ DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) 
     const int entry = 30;
     const int hold = entry + static_cast<int>(holdSeconds * 60);
     std::printf("self-test drift %3.0f km/h throttle %.1f steer %4.1f:", kmh, throttle, steer);
+    float turned = 0;  // 保っている間に進む向きが回った角度（rad）
+    float prevHeading = 0;
     for (int step = 0; step < hold + 180; ++step) {
         DriveInput input;
         // ドリフトはサイドブレーキを押している間だけなので、保つ間も押し続ける。
@@ -642,7 +645,14 @@ DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) 
             input.handbrake = true;
         }
         rig.Step(input);
+        float heading = std::atan2(car.body.velocity.x, car.body.velocity.z);
+        float delta = heading - prevHeading;
+        delta = std::atan2(std::sin(delta), std::cos(delta));
+        prevHeading = heading;
         // 入ってから 1 秒後から、保てているかを見る。
+        if (step > entry + 60 && step < hold) {
+            turned += delta;
+        }
         if (step >= entry + 60 && step < hold) {
             float angle = std::fabs(car.driftAngle);
             result.minAngle = std::min(result.minAngle, angle);
@@ -657,6 +667,7 @@ DriftResult driftRun(float kmh, float throttle, float steer, float holdSeconds) 
         }
     }
     result.endedStraight = !car.drifting && std::fabs(car.driftAngle) < 0.1f;
+    result.curveRate = turned * 57.3f / (holdSeconds - 1.0f);
     std::printf("\n");
     return result;
 }
@@ -677,10 +688,15 @@ int driftTest() {
             if (r.endSpeed < kmh * 0.6f) return 26;
         }
     }
-    // ハンドルの入力で角度が変わること（コーナーの内へ切ると深く、外へ切ると浅く）。
-    DriftResult inside = driftRun(100.0f, 1.0f, -1.0f, 4.0f);
-    DriftResult outside = driftRun(100.0f, 1.0f, 1.0f, 4.0f);
-    if (!inside.heldAll || !outside.heldAll || inside.minAngle <= outside.maxAngle) return 27;
+    // スティックの倒す量で曲がりが決まること。倒すほど大きく曲がり、倒した向きへ曲がる。
+    float prevRate = -1e9f;
+    for (float steer : {-1.0f, -0.5f, 0.0f, 0.5f, 1.0f}) {
+        DriftResult r = driftRun(100.0f, 1.0f, steer, 4.0f);
+        std::printf("self-test drift   steer %4.1f curve %.0f deg/s angle %.0f..%.0f deg held %d\n", steer, r.curveRate,
+                    r.minAngle * 57.3f, r.maxAngle * 57.3f, r.heldAll ? 1 : 0);
+        if (!r.heldAll || r.curveRate <= prevRate + 5.0f) return 27;
+        prevRate = r.curveRate;
+    }
     return 0;
 }
 

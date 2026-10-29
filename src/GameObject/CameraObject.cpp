@@ -13,6 +13,8 @@ namespace {
 
 // ドリフト中に、車の向きから進む向きへどれだけ寄せるか（0 で車の向き、1 で進む向き）。
 constexpr float kTravelShare = 0.7f;
+// その割合を変える速さ（1/s）。小さいほど、ドリフトの後にゆっくり車の後ろへ戻る。
+constexpr float kTravelShareRate = 1.5f;
 
 }  // namespace
 
@@ -35,10 +37,11 @@ void CameraObject::LateUpdate(float dt) {
     const float ahead[3] = {9.0f, 6.0f, 14.0f};
     // ドリフト中は、車の向きと進む向きの間から見る。車の向きだけで追うと、横を向いた車体が画面の正面に来て
     // 進む先が見えず、進む向きだけで追うと、車体の角度が分からない。
-    float yaw = car.body.yaw;
-    if (car.drifting) {
-        yaw += car.driftAngle * kTravelShare;
-    }
+    // 寄せる割合は、ドリフトに入るときと抜けるときにゆっくり変える。すぐに 0 へ戻すと、横を向いていた車体の向きへ
+    // カメラが一気に回る。割合を残しておけば、車体がまっすぐに戻るにつれて角度も 0 へ近づき、なめらかに車の後ろへ戻る。
+    float shareTarget = car.drifting ? kTravelShare : 0.0f;
+    travelShare_ += (shareTarget - travelShare_) * (1.0f - std::exp(-dt * kTravelShareRate));
+    float yaw = car.body.yaw + car.driftAngle * travelShare_;
     Vec3 forward{std::sin(yaw), 0, std::cos(yaw)};
     Vec3 origin = car.Origin();
     Vec3 eye = origin - forward * back[mode_] + Vec3{0, up[mode_], 0};
@@ -49,6 +52,7 @@ void CameraObject::LateUpdate(float dt) {
         eye.y = under.point.y + 0.8f;
     }
     if (!ready_) {
+        travelShare_ = shareTarget;
         eye_ = eye;
         look_ = look;
         ready_ = true;

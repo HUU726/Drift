@@ -99,6 +99,9 @@ struct Car {
     float driftMaxAngle = 0.96f;     // アクセル全開で保つ角度（rad、約 55°）
     float driftAngleAssist = 1.0f;   // 角度を保つために車体を回す補助の強さ
     float driftMaxSteer = 0.96f;     // ドリフト中の逆ハンドルの最大の切れ角（rad、約 55°）
+    // ドリフト中の曲がり。スティックを倒しきったときに、進む向きが回る速さ（rad/s）。倒す量に比例し、離すとまっすぐ。
+    float driftCurveRate = 0.6f;     // 約 34°/s
+    float driftCurveAssist = 1.0f;   // 曲がりをその速さへ寄せる補助の強さ（0 で補助なし、大きいほどその速さに近づく）
     // 状態
     bool drifting = false;
     float driftAngle = 0;            // 車体の滑りの角度（rad、右へ滑るのが正。右のコーナーでは負）
@@ -116,6 +119,7 @@ private:
     bool rearDriftTires_ = false;
     bool driftKicked_ = false;  // ドリフトに入ってから、サイドブレーキで向きを変え終えたか
     float prevDriftAngle_ = 0;
+    float pathRate_ = 0;  // 進む向きの回る速さ（rad/s、ならしたもの）
 };
 
 void buildCarBody(CpuMesh& mesh);

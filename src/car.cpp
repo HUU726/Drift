@@ -17,6 +17,8 @@ constexpr float kDriftMinSpeed = 8.0f;    // これより遅いとドリフト�
 constexpr float kDriftSpinAngle = 1.45f;  // これを越えたらスピンとしてドリフトをやめる（rad、約 83°）
 constexpr float kAngleGain = 10.0f;       // 角度の補助: 目標の角度との差（rad）に掛ける角加速度（1/s²）
 constexpr float kAngleDamping = 4.0f;     // 角度の補助: 角度の変わる速さ（rad/s）に掛ける角加速度（1/s）
+constexpr float kPathRateSmoothing = 0.1f;  // 曲がりの補助: 進む向きの回る速さをならす時間（秒）
+constexpr float kMaxCurveAccel = 12.0f;     // 曲がりの補助が出す横の加速度の上限（m/s²）
 
 }  // namespace
 
@@ -60,6 +62,21 @@ void Car::updateDrift(float dt, const DriveInput& input, float speed) {
         }
         // 角度を深くするには、滑る向きと逆へ車体を回す（右のコーナーでは右回り = ヨーが正）。
         body.AddTorque(-side * accel * driftAngleAssist * body.inertiaYaw, 0, 0, dt);
+    }
+
+    // 曲がりの補助。進む向きの回る速さ（車体のヨーレート + 角度の変わる速さ）を、スティックの倒す量 × driftCurveRate へ
+    // 寄せる。進む向きに直角な力を重心に掛けるので、速さは変えずに進む向きだけを曲げる。
+    float pathRate = body.yawRate + angleRate;
+    pathRate_ += (pathRate - pathRate_) * (1.0f - std::exp(-dt / kPathRateSmoothing));
+    if (drifting && driftKicked_ && driftCurveAssist > 0 && speed > 1.0f) {
+        float target = clampf(input.steer, -1.0f, 1.0f) * driftCurveRate;
+        float lateralAccel = driftCurveAssist * (target - pathRate_) * speed;
+        lateralAccel = clampf(lateralAccel, -kMaxCurveAccel, kMaxCurveAccel);
+        Vec3 velocity{body.velocity.x, 0, body.velocity.z};
+        float length = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+        // 進む向きの右（ヨーが正の向きへ曲げる向き）。
+        Vec3 right{velocity.z / length, 0, -velocity.x / length};
+        body.AddForceAt(right * (lateralAccel * body.mass), body.position);
     }
 }
 
@@ -168,6 +185,7 @@ void Car::Place(Vec3 origin, float yaw) {
     driftAngle = 0;
     driftKicked_ = false;
     prevDriftAngle_ = 0;
+    pathRate_ = 0;
     powertrain->Reset();
     airControl.Reset();
     ground = TrackPose{};

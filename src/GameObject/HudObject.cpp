@@ -46,7 +46,7 @@ void HudObject::drawMinimap(System::Renderer2D& hud) {
     const Car& car = car_->GetCar();
     const Track& track = track_->GetTrack();
     float size = 190.0f;
-    float x0 = 24.0f;
+    float x0 = float(hud.Width()) - size - 24.0f;
     float y0 = float(hud.Height()) - size - 28.0f;
     hud.AddQuad(x0, y0, x0 + size, y0 + size, 0.02f, 0.03f, 0.05f, 0.78f);
     float minX = track.samples[0].x;

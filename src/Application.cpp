@@ -19,6 +19,21 @@ namespace {
 constexpr double kFixedStepSec = 1.0 / 60.0;
 constexpr double kMaxFrameSec = 0.25;
 
+#ifdef __EMSCRIPTEN__
+// ゲーム画面を、縦横比を保ったままブラウザの表示領域に収まる大きさで表示します。描画の解像度は変わりません。
+// ウィンドウの大きさを変えても追従し、全画面のときはこの制限を外します。
+void fitCanvasToPage() {
+    EM_ASM({
+        var top = Math.ceil(Module.canvas.getBoundingClientRect().top + window.scrollY) + 2;
+        var style = document.createElement("style");
+        style.textContent =
+            "canvas.emscripten{max-width:100%;max-height:calc(100vh - " + top + "px)}" +
+            ":fullscreen canvas.emscripten{max-width:none;max-height:none}";
+        document.head.appendChild(style);
+    });
+}
+#endif
+
 }  // namespace
 
 bool App::Init(int argc, char** argv) {
@@ -83,6 +98,9 @@ bool App::initGl() {
         SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
         return false;
     }
+#ifdef __EMSCRIPTEN__
+    fitCanvasToPage();
+#endif
     gl_ = SDL_GL_CreateContext(window_);
     if (!gl_) {
         SDL_Log("SDL_GL_CreateContext failed: %s", SDL_GetError());

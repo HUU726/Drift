@@ -1,0 +1,48 @@
+# main に push するたびにブラウザ版をビルドし、GitHub Pages に公開します。
+# 公開先: https://huu726.github.io/Drift/
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 新しい公開が始まったら、待っている古い公開は取り消します。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk:3.1.64
+    steps:
+      - uses: actions/checkout@v4
+      - name: ビルド
+        run: |
+          emcmake cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j4
+      # 入口を index.html にして、URL にファイル名を付けなくても開けるようにします。
+      - name: 公開するファイルを集める
+        run: |
+          mkdir site
+          cp build/racegame.js build/racegame.wasm build/racegame.data site/
+          cp build/racegame.html site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

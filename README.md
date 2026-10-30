@@ -51,6 +51,10 @@ BGM の 2 曲もこのリポジトリのために書いたもので、このリ�
 
 ## ブラウザ版
 
+main の最新版を https://huu726.github.io/Drift/ で遊べます。main に push すると `.github/workflows/pages.yml` が自動で公開し直します。
+
+手元で動かすときは次の手順です。
+
 ```bash
 emcmake cmake -B build
 cmake --build build

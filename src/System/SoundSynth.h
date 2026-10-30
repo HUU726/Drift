@@ -36,8 +36,8 @@ public:
     // 音量（0..1）。master は全体、music は BGM、effects はエンジン音、スキール音、効果音に掛ける。
     // 既定の全体の音量は 0.8 の 3 分の 2。
     std::atomic<float> masterVolume{0.8f * 2.0f / 3.0f};
-    std::atomic<float> musicVolume{0.5f};
-    std::atomic<float> effectsVolume{0.8f};
+    std::atomic<float> musicVolume{0.1f};
+    std::atomic<float> effectsVolume{0.2f};
 
 private:
     // 1 音ずつ鳴らす声部（BGM のパート）。鳴らすたびに音の高さと包絡線を決め直す。

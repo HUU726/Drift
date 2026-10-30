@@ -21,7 +21,8 @@ public:
 
     // BGM を切り替える（同じ曲なら何もしない）。前の曲は少しずつ下げてから切り替わる。
     void PlayBgm(BgmTrack track) { synth_.SetBgm(track); }
-    void PlaySe(SoundEffect effect) { synth_.Play(effect); }
+    // strength（0..1）は当たりの強さなど、効果音の大きさ。
+    void PlaySe(SoundEffect effect, float strength = 1.0f) { synth_.Play(effect, strength); }
     // 車の音（エンジン音とスキール音）。車のいるシーンが毎フレーム渡し、いなくなるときに StopCar を呼ぶ。
     void SetCar(const CarSoundParams& params) { synth_.SetCar(params); }
     void StopCar() { synth_.SetCar(CarSoundParams{}); }

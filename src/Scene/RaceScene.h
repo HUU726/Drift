@@ -5,15 +5,16 @@
 
 class CameraObject;
 class CarObject;
+class PauseMenuObject;
 class RaceTimerObject;
 
 // レース本編。リスタート（R）とポーズ（P）はシーンの入れ替えではなく、このシーンの状態として扱う。
-// Esc でシーン選択の画面に戻る。
+// Esc でシーン選択の画面に戻る。P でポーズの画面（PauseMenuObject）を開き、音量を変えたりタイトルへ戻ったりできる。
 class RaceScene : public Scene {
 public:
     explicit RaceScene(System::Context& ctx) : Scene(ctx) {}
     bool Init() override;
-    bool Paused() const override { return paused_; }
+    bool Paused() const override;
 
 protected:
     void OnStartUpdate(float dt) override;
@@ -25,7 +26,7 @@ private:
     CarObject* car_ = nullptr;
     RaceTimerObject* timer_ = nullptr;
     CameraObject* camera_ = nullptr;
-    bool paused_ = false;
+    PauseMenuObject* pause_ = nullptr;
 };
 
 // 峠。山頂から下ってヘアピンを抜け、谷から登って戻る 1 周を、レースと同じ HUD とラップ計測で走る。

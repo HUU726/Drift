@@ -149,8 +149,5 @@ void HudObject::Draw2D(System::Renderer2D& hud) {
     if (!track.mountain) {
         hud.DrawText(float(hud.Width()) - 250, float(hud.Height()) - 28, 1.6f, "(C) OSM / GSI", 0.85f, 0.88f, 0.9f, 1);
     }
-    if (scene_.Paused()) {
-        hud.DrawText(float(hud.Width()) * 0.5f - 70, float(hud.Height()) * 0.45f, 5.0f, "PAUSE", 1, 0.95f, 0.9f, 1);
-    }
     drawMinimap(hud);
 }

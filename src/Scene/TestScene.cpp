@@ -2,6 +2,7 @@
 
 #include "GameObject/CameraObject.h"
 #include "GameObject/CarObject.h"
+#include "GameObject/PauseMenuObject.h"
 #include "GameObject/SmokeObject.h"
 #include "GameObject/TelemetryHudObject.h"
 #include "GameObject/TestGroundObject.h"
@@ -23,6 +24,7 @@ bool TestScene::Init() {
     Add<SmokeObject>();
     Add<TelemetryHudObject>();
     Add<TuningObject>();
+    pause_ = Add<PauseMenuObject>();
     return InitObjects();
 }
 
@@ -33,10 +35,8 @@ void TestScene::OnStartUpdate(float dt) {
         car_->Reset();
         camera_->Snap();
     }
-    if (input.Pressed(System::Action::Pause)) {
-        paused_ = !paused_;
-    }
-    if (input.Pressed(System::Action::Back)) {
+    // ポーズの画面が開いている間の Esc は、画面を閉じる（PauseMenuObject が扱う）。
+    if (input.Pressed(System::Action::Back) && !pause_->IsOpen()) {
         Ctx().scenes.Change<SelectScene>();
     }
 }
@@ -44,4 +44,8 @@ void TestScene::OnStartUpdate(float dt) {
 void TestScene::GetView(Mat4& viewProj, Vec3& eye) const {
     viewProj = camera_->ViewProj();
     eye = camera_->Eye();
+}
+
+bool TestScene::Paused() const {
+    return pause_ && pause_->IsOpen();
 }

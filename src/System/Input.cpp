@@ -91,6 +91,8 @@ void Input::OnEvent(const SDL_Event& event) {
         else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_B) press(Action::Back);
         else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_UP) press(Action::MenuUp);
         else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) press(Action::MenuDown);
+        else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT) press(Action::MenuLeft);
+        else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) press(Action::MenuRight);
     }
 }
 
@@ -164,9 +166,11 @@ void Input::readBrowserPad() {
     bool confirm = false;
     bool up = false;
     bool down = false;
+    bool left = false;
+    bool right = false;
     if (emscripten_sample_gamepad_data() != EMSCRIPTEN_RESULT_SUCCESS) {
         prevCamera_ = prevReset_ = prevPause_ = false;
-        prevBack_ = prevConfirm_ = prevUp_ = prevDown_ = false;
+        prevBack_ = prevConfirm_ = prevUp_ = prevDown_ = prevLeft_ = prevRight_ = false;
         return;
     }
     const int count = emscripten_get_num_gamepads();
@@ -206,6 +210,8 @@ void Input::readBrowserPad() {
             back = back || held(1);
             up = up || held(12);
             down = down || held(13);
+            left = left || held(14);
+            right = right || held(15);
         } else if (pad.numAxes >= 6) {
             input.throttle = std::max(input.throttle, triggerLevel(axis(5)));
             input.brake = std::max(input.brake, triggerLevel(axis(4)));
@@ -220,11 +226,15 @@ void Input::readBrowserPad() {
     if (confirm && !prevConfirm_) press(Action::Confirm);
     if (up && !prevUp_) press(Action::MenuUp);
     if (down && !prevDown_) press(Action::MenuDown);
+    if (left && !prevLeft_) press(Action::MenuLeft);
+    if (right && !prevRight_) press(Action::MenuRight);
     prevPause_ = pause;
     prevBack_ = back;
     prevConfirm_ = confirm;
     prevUp_ = up;
     prevDown_ = down;
+    prevLeft_ = left;
+    prevRight_ = right;
 }
 #endif
 

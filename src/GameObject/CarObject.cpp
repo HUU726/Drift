@@ -55,6 +55,29 @@ void CarObject::FixedUpdate(float dt) {
     car_.update(dt, scene_.Ctx().input.Drive(), track_);
 }
 
+void CarObject::OnCollision(const Contact& contact) {
+    // 力積を質量で割ると、当たりで変わった速さ（m/s）になる。こすった程度（0.8 m/s 未満）では鳴らさない。
+    float change = contact.impulse / car_.body.mass;
+    if (change < 0.8f) {
+        return;
+    }
+    scene_.Ctx().sound.PlaySe(System::SoundEffect::Crash, clampf((change - 0.8f) / 7.0f, 0.0f, 1.0f));
+}
+
+void CarObject::PostPhysicsUpdate(float dt) {
+    (void)dt;
+    // 車体が 75° ほど傾いたら（上向きの y が 0.25 未満）横転とする。ほぼ起き上がるまで（リセットを含む）次は鳴らさない。
+    Vec3 right, up, forward;
+    car_.body.Axes(right, up, forward);
+    if (!rolled_ && up.y < 0.25f) {
+        rolled_ = true;
+        float speed = length(car_.body.velocity);
+        scene_.Ctx().sound.PlaySe(System::SoundEffect::Rollover, clampf(speed / 20.0f, 0.0f, 1.0f));
+    } else if (rolled_ && up.y > 0.8f) {
+        rolled_ = false;
+    }
+}
+
 void CarObject::LateUpdate(float dt) {
     (void)dt;
     // ポーズ中は音を止める（車が止まって見えるのに、エンジンとタイヤが鳴り続けないように）。

@@ -3,6 +3,7 @@
 #include "GameObject/CameraObject.h"
 #include "GameObject/CarObject.h"
 #include "GameObject/HudObject.h"
+#include "GameObject/PauseMenuObject.h"
 #include "GameObject/RaceTimerObject.h"
 #include "GameObject/RampObject.h"
 #include "GameObject/SmokeObject.h"
@@ -26,6 +27,7 @@ bool RaceScene::Init() {
     camera_ = Add<CameraObject>();
     Add<SmokeObject>();
     Add<HudObject>();
+    pause_ = Add<PauseMenuObject>();
     return InitObjects();
 }
 
@@ -37,10 +39,8 @@ void RaceScene::OnStartUpdate(float dt) {
         timer_->Reset();
         camera_->Snap();
     }
-    if (input.Pressed(System::Action::Pause)) {
-        paused_ = !paused_;
-    }
-    if (input.Pressed(System::Action::Back)) {
+    // ポーズの画面が開いている間の Esc は、画面を閉じる（PauseMenuObject が扱う）。
+    if (input.Pressed(System::Action::Back) && !pause_->IsOpen()) {
         Ctx().scenes.Change<SelectScene>();
     }
 }
@@ -48,4 +48,8 @@ void RaceScene::OnStartUpdate(float dt) {
 void RaceScene::GetView(Mat4& viewProj, Vec3& eye) const {
     viewProj = camera_->ViewProj();
     eye = camera_->Eye();
+}
+
+bool RaceScene::Paused() const {
+    return pause_ && pause_->IsOpen();
 }

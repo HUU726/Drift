@@ -15,7 +15,8 @@ struct CarSoundParams {
 };
 
 enum class BgmTrack { None, Title, Race };
-enum class SoundEffect { Lap, BestLap };
+// 効果音。Crash はガードレールや壁に当たったとき、Rollover は車体が横転したとき、Tick はメニューの操作。
+enum class SoundEffect { Lap, BestLap, Crash, Rollover, Tick, Count };
 
 // 音の合成。エンジン音、スキール音、BGM、効果音をすべて実行時に作る（音のファイルは使わない）。
 // Render は音を出すスレッドから呼ばれ、Set / Play はゲームのスレッドから呼ばれるので、受け渡しは atomic で行う。
@@ -29,7 +30,8 @@ public:
 
     void SetCar(const CarSoundParams& params);
     void SetBgm(BgmTrack track) { requestedBgm_.store(static_cast<int>(track)); }
-    void Play(SoundEffect effect);
+    // strength（0..1）は当たりの強さなど、効果音の大きさ。同じフレームに何度も呼んだときは最後の値を使う。
+    void Play(SoundEffect effect, float strength = 1.0f);
 
     // 音量（0..1）。master は全体、music は BGM、effects はエンジン音、スキール音、効果音に掛ける。
     std::atomic<float> masterVolume{0.8f};
@@ -52,15 +54,33 @@ private:
         float phase = 0;
         float time = 0;
         int delay = 0;
+        float decay = 5;     // 小さくなる速さ（1/秒）
+        float gain = 0.22f;
+        bool on = false;
+    };
+    // ぶつかる音の 1 回。低い「ドン」、雑音の「ガシャ」、金属の響き（ガードレール）を重ねる。delay サンプル待ってから鳴る。
+    struct Hit {
+        float time = 0;
+        int delay = 0;
+        float gain = 0;
+        float thump = 0;        // 「ドン」の最初の高さ（Hz）。時間とともに下がる
+        float thumpPhase = 0;
+        float metal = 0;        // 金属の響きの大きさ
+        float metalPhase[3] = {};
+        float noiseDecay = 25;  // 雑音が小さくなる速さ（1/秒）。小さいほど長く「ガシャー」と残る
+        float noiseLow = 0;     // 雑音のローパスの状態
         bool on = false;
     };
     float noise();
     float renderEngine();
     float renderSkid();
     float renderChimes();
+    float renderHits();
     float renderMusic();
     void stepSequencer();
-    void startChime(float freq, float delaySec);
+    void startEffect(SoundEffect effect, float strength);
+    void startChime(float freq, float delaySec, float decay = 5, float gain = 0.22f);
+    void startHit(const Hit& hit, float delaySec);
     void trigger(Voice& voice, float freq, float attackSec, float decaySec, float sweep = 1);
 
     int sampleRate_ = 44100;
@@ -74,8 +94,10 @@ private:
     std::atomic<float> carSpeed_{0};
     std::atomic<float> carSkid_{0};
     std::atomic<int> requestedBgm_{0};
-    std::atomic<int> lapRequests_{0};
-    std::atomic<int> bestRequests_{0};
+    // 効果音ごとの、鳴らすように頼まれた回数と強さ。音のスレッドは seen_ と比べて、増えた分を鳴らす。
+    static constexpr int kEffectCount = static_cast<int>(SoundEffect::Count);
+    std::atomic<int> requests_[kEffectCount] = {};
+    std::atomic<float> strengths_[kEffectCount] = {};
 
     // 以下は音のスレッドだけが触る
     // エンジン
@@ -87,7 +109,8 @@ private:
     float skidLow_ = 0, skidBand_ = 0;
     // 効果音
     Chime chimes_[8];
-    int lapSeen_ = 0, bestSeen_ = 0;
+    Hit hits_[8];
+    int seen_[kEffectCount] = {};
     // BGM
     int bgm_ = 0;
     float bgmFade_ = 0;  // 曲の切り替えで下げる大きさ（0..1）

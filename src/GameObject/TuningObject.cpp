@@ -334,6 +334,10 @@ std::string TuningObject::valueText(const Item& item) const {
 
 void TuningObject::StartUpdate(float dt) {
     messageTime_ = std::max(0.0f, messageTime_ - dt);
+    // ポーズの画面が開いている間は、矢印キーをポーズの画面に任せる。
+    if (scene_.Paused()) {
+        return;
+    }
     System::Input& input = scene_.Ctx().input;
     if (input.Pressed(System::Action::MenuToggle)) {
         open_ = !open_;

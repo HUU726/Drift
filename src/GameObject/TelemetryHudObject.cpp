@@ -74,7 +74,4 @@ void TelemetryHudObject::Draw2D(System::Renderer2D& hud) {
                      "SPACE DRIFT  ESC MENU  R RESET  C CAMERA  P PAUSE  H HELP  TAB TUNING",
                      0.75f, 0.8f, 0.84f, 1);
     }
-    if (scene_.Paused()) {
-        hud.DrawText(float(hud.Width()) * 0.5f - 70, float(hud.Height()) * 0.45f, 5.0f, "PAUSE", 1, 0.95f, 0.9f, 1);
-    }
 }

@@ -9,6 +9,7 @@ namespace {
 
 constexpr float kTwoPi = 6.2831853f;
 constexpr float kCrossfadeSec = 0.5f;  // 曲を切り替えるとき、前の曲を下げきるまでの時間
+constexpr float kSkidWobbleHz = 2.8f;  // スキール音の揺れの速さ（1 秒に揺れる回数）。小さいほど 1 回の「きゅー」が長い
 
 // MIDI の音の番号から周波数（Hz）。69 が A4（440 Hz）。
 float noteFreq(int note) {
@@ -137,12 +138,13 @@ void SoundSynth::SetCar(const CarSoundParams& params) {
     carSkid_.store(std::clamp(params.skid, 0.0f, 1.0f));
 }
 
-void SoundSynth::Play(SoundEffect effect) {
-    if (effect == SoundEffect::BestLap) {
-        bestRequests_.fetch_add(1);
-    } else {
-        lapRequests_.fetch_add(1);
+void SoundSynth::Play(SoundEffect effect, float strength) {
+    const int index = static_cast<int>(effect);
+    if (index < 0 || index >= kEffectCount) {
+        return;
     }
+    strengths_[index].store(std::clamp(strength, 0.0f, 1.0f));
+    requests_[index].fetch_add(1);
 }
 
 float SoundSynth::noise() {
@@ -158,22 +160,19 @@ void SoundSynth::Render(float* out, int frames, int channels) {
     const float master = std::clamp(masterVolume.load(), 0.0f, 1.0f);
     const float music = std::clamp(musicVolume.load(), 0.0f, 1.0f);
     const float effects = std::clamp(effectsVolume.load(), 0.0f, 1.0f);
-    int lap = lapRequests_.load();
-    int best = bestRequests_.load();
-    // 周回の音は 2 音、ベストラップの音は 3 音を、少しずつずらして鳴らす。
-    for (; lapSeen_ < lap; ++lapSeen_) {
-        startChime(noteFreq(83), 0.0f);   // B5
-        startChime(noteFreq(88), 0.12f);  // E6
-    }
-    for (; bestSeen_ < best; ++bestSeen_) {
-        startChime(noteFreq(84), 0.0f);   // C6
-        startChime(noteFreq(88), 0.1f);   // E6
-        startChime(noteFreq(91), 0.2f);   // G6
-        startChime(noteFreq(96), 0.3f);   // C7
+    for (int e = 0; e < kEffectCount; ++e) {
+        const int requested = requests_[e].load();
+        // 1 ブロックで鳴らし始めるのは同じ音につき 2 回まで（壁をこすって何度も当たったときに、音が積み重ならない）。
+        if (requested - seen_[e] > 2) {
+            seen_[e] = requested - 2;
+        }
+        for (; seen_[e] < requested; ++seen_[e]) {
+            startEffect(static_cast<SoundEffect>(e), strengths_[e].load());
+        }
     }
 
     for (int i = 0; i < frames; ++i) {
-        float fx = renderEngine() + renderSkid() + renderChimes();
+        float fx = renderEngine() + renderSkid() + renderChimes() + renderHits();
         float bgm = renderMusic();
         float v = softClip((fx * effects + bgm * music) * master);
         for (int c = 0; c < channels; ++c) {
@@ -213,13 +212,15 @@ float SoundSynth::renderEngine() {
 
 float SoundSynth::renderSkid() {
     float target = carActive_.load(std::memory_order_relaxed) ? carSkid_.load(std::memory_order_relaxed) : 0.0f;
-    skid_ += (target - skid_) * smoothing(0.07f, dt_);
+    // 鳴り始めは速く、止むときはゆっくり。ドリフトの角度が一瞬浅くなっても、音が細かく途切れない。
+    skid_ += (target - skid_) * smoothing(target > skid_ ? 0.06f : 0.2f, dt_);
     if (skid_ < 1e-4f) {
         return 0;
     }
     // タイヤの鳴き。揺れる高さの音と、帯域を絞った雑音を重ねる。速いほど少し高くする。
     const float speed = carSpeed_.load(std::memory_order_relaxed);
-    wobblePhase_ = wrap(wobblePhase_ + 6.5f * dt_);
+    // 鳴きの揺れ（「きゅー、きゅー」の 1 回の長さ）。1 秒に 2.8 回なので、1 回は約 0.36 秒。
+    wobblePhase_ = wrap(wobblePhase_ + kSkidWobbleHz * dt_);
     const float wobble = std::sin(kTwoPi * wobblePhase_);
     const float pitch = 760.0f + 4.0f * std::min(speed, 40.0f) + 25.0f * wobble;
     squealPhase_ = wrap(squealPhase_ + pitch * dt_);
@@ -236,7 +237,108 @@ float SoundSynth::renderSkid() {
     return (0.22f * squeal + 0.3f * skidBand_) * amount * 0.6f;
 }
 
-void SoundSynth::startChime(float freq, float delaySec) {
+void SoundSynth::startEffect(SoundEffect effect, float strength) {
+    switch (effect) {
+        case SoundEffect::Lap:
+            // 周回の音は 2 音を少しずらして鳴らす。
+            startChime(noteFreq(83), 0.0f);   // B5
+            startChime(noteFreq(88), 0.12f);  // E6
+            break;
+        case SoundEffect::BestLap:
+            // ベストラップの音は 4 音で上がっていく。
+            startChime(noteFreq(84), 0.0f);   // C6
+            startChime(noteFreq(88), 0.1f);   // E6
+            startChime(noteFreq(91), 0.2f);   // G6
+            startChime(noteFreq(96), 0.3f);   // C7
+            break;
+        case SoundEffect::Crash: {
+            // ガードレール。「ドン」に、鋼の板が鳴る「ガイン」を重ねる。強く当たるほど大きく、低く響く。
+            Hit hit;
+            hit.gain = 0.25f + 0.75f * strength;
+            hit.thump = 110.0f - 30.0f * strength;
+            hit.metal = 0.35f + 0.4f * strength;
+            hit.noiseDecay = 30.0f - 12.0f * strength;
+            startHit(hit, 0.0f);
+            break;
+        }
+        case SoundEffect::Rollover: {
+            // 横転。車体が路面に当たって転がる「ガシャン、ゴロン、ゴロン」を、だんだん小さくして並べる。
+            const float times[4] = {0.0f, 0.38f, 0.8f, 1.3f};
+            for (int i = 0; i < 4; ++i) {
+                Hit hit;
+                hit.gain = (i == 0 ? 1.0f : 0.75f - 0.15f * float(i)) * (0.6f + 0.4f * strength);
+                hit.thump = i == 0 ? 95.0f : 75.0f;
+                hit.metal = i == 0 ? 0.25f : 0.1f;
+                hit.noiseDecay = i == 0 ? 7.0f : 14.0f;
+                startHit(hit, times[i]);
+            }
+            break;
+        }
+        case SoundEffect::Tick:
+            // メニューの操作。短く小さい音
+            startChime(noteFreq(93), 0.0f, 40.0f, 0.12f);
+            break;
+        default:
+            break;
+    }
+}
+
+void SoundSynth::startHit(const Hit& hit, float delaySec) {
+    // 空いている枠を使う。空きがなければ、いちばん古い音を止めて使う。
+    Hit* slot = &hits_[0];
+    for (Hit& h : hits_) {
+        if (!h.on) {
+            slot = &h;
+            break;
+        }
+        if (h.time > slot->time) {
+            slot = &h;
+        }
+    }
+    *slot = hit;
+    slot->delay = int(delaySec * float(sampleRate_));
+    slot->on = true;
+}
+
+float SoundSynth::renderHits() {
+    // 金属の響きの周波数。整数倍にならない組み合わせにして、鋼の板らしい濁った響きにする。
+    static const float kMetal[3] = {430.0f, 1130.0f, 1910.0f};
+    const float noiseCoef = lowpassCoef(2200.0f, dt_);
+    float sum = 0;
+    for (Hit& h : hits_) {
+        if (!h.on) {
+            continue;
+        }
+        if (h.delay > 0) {
+            --h.delay;
+            continue;
+        }
+        const float t = h.time;
+        const float attack = std::min(1.0f, t / 0.002f);
+        // 「ドン」: 高さが下がっていく正弦波
+        float freq = 35.0f + h.thump * std::exp(-t * 9.0f);
+        h.thumpPhase = wrap(h.thumpPhase + freq * dt_);
+        float thump = std::sin(kTwoPi * h.thumpPhase) * std::exp(-t * 9.0f);
+        // 「ガシャ」: ローパスで丸めた雑音
+        h.noiseLow += (noise() - h.noiseLow) * noiseCoef;
+        float crunch = h.noiseLow * std::exp(-t * h.noiseDecay);
+        // 金属の響き
+        float ring = 0;
+        for (int i = 0; i < 3; ++i) {
+            h.metalPhase[i] = wrap(h.metalPhase[i] + kMetal[i] * dt_);
+            ring += std::sin(kTwoPi * h.metalPhase[i]) / float(i + 1);
+        }
+        ring *= h.metal * std::exp(-t * 6.0f);
+        sum += h.gain * attack * (0.5f * thump + 0.9f * crunch + 0.12f * ring);
+        h.time += dt_;
+        if (h.time > 1.5f) {
+            h.on = false;
+        }
+    }
+    return sum;
+}
+
+void SoundSynth::startChime(float freq, float delaySec, float decay, float gain) {
     // 空いている枠を使う。空きがなければ、いちばん古い音を止めて使う。
     Chime* slot = &chimes_[0];
     for (Chime& c : chimes_) {
@@ -248,7 +350,7 @@ void SoundSynth::startChime(float freq, float delaySec) {
             slot = &c;
         }
     }
-    *slot = Chime{freq, 0, 0, int(delaySec * float(sampleRate_)), true};
+    *slot = Chime{freq, 0, 0, int(delaySec * float(sampleRate_)), decay, gain, true};
 }
 
 float SoundSynth::renderChimes() {
@@ -263,10 +365,10 @@ float SoundSynth::renderChimes() {
         }
         // ベルの音。基音に 2 倍と 3 倍の音を少し重ね、短い立ち上がりのあと指数で減衰する。
         c.phase = wrap(c.phase + c.freq * dt_);
-        float env = std::min(1.0f, c.time / 0.004f) * std::exp(-c.time * 5.0f);
+        float env = std::min(1.0f, c.time / 0.004f) * std::exp(-c.time * c.decay);
         float v = std::sin(kTwoPi * c.phase) + 0.3f * std::sin(2.0f * kTwoPi * c.phase) +
                   0.12f * std::sin(3.0f * kTwoPi * c.phase);
-        sum += v * env * 0.22f;
+        sum += v * env * c.gain;
         c.time += dt_;
         if (c.time > 1.5f) {
             c.on = false;

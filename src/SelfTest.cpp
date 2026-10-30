@@ -1629,7 +1629,8 @@ int labTest() {
 }
 
 // 音の合成。音の出る装置は使わず、SoundSynth が作る値だけを調べる。どの場面でも値が -1..1 の有限の数に収まり、
-// 何も鳴らさなければ無音、BGM、エンジン音（アクセルで大きくなる）、スキール音、ラップの音がそれぞれ鳴ること。
+// 何も鳴らさなければ無音、BGM、エンジン音（アクセルで大きくなる）、スキール音、ラップの音、衝突（強いほど大きい）、
+// 横転、メニューの音がそれぞれ鳴ること。
 int soundTest() {
     System::SoundSynth synth;
     synth.SetSampleRate(48000);
@@ -1697,15 +1698,36 @@ int soundTest() {
     Level lap = check(render(0.5f));
     synth.Play(System::SoundEffect::BestLap);
     check(render(3.0f));
+    // 衝突（弱い・強い）、横転、メニューの音。どれも鳴り、強く当たるほうが大きく、その後は静かに戻る。
+    synth.Play(System::SoundEffect::Crash, 0.1f);
+    Level softHit = check(render(0.3f));
+    check(render(1.7f));
+    synth.Play(System::SoundEffect::Crash, 1.0f);
+    Level hardHit = check(render(0.3f));
+    check(render(1.7f));
+    synth.Play(System::SoundEffect::Rollover, 1.0f);
+    Level roll = check(render(1.6f));
+    check(render(1.5f));
+    synth.Play(System::SoundEffect::Tick);
+    Level tick = check(render(0.1f));
+    check(render(0.5f));
+    // 同じ音を一度にたくさん頼んでも、値が範囲に収まる（壁をこすり続けたとき）。
+    for (int i = 0; i < 50; ++i) {
+        synth.Play(System::SoundEffect::Crash, 1.0f);
+    }
+    check(render(2.0f));
     Level after = check(render(0.5f));
 
     std::printf("self-test sound rms: silent %.4f title %.3f race %.3f idle %.3f full %.3f skid %.3f lap %.3f after %.4f\n",
                 silent.rms, title.rms, race.rms, idle.rms, full.rms, skid.rms, lap.rms, after.rms);
+    std::printf("self-test sound rms: crash soft %.3f hard %.3f rollover %.3f tick %.3f\n", softHit.rms, hardHit.rms, roll.rms,
+                tick.rms);
     if (!ok) return 75;
     if (silent.peak > 1e-6f || after.rms > 1e-3f) return 76;
     if (title.rms < 0.01f || race.rms < 0.01f) return 77;
     if (idle.rms < 0.01f || full.rms < idle.rms * 1.3f) return 78;
     if (skid.rms < full.rms * 1.05f || lap.rms < 0.02f) return 79;
+    if (softHit.rms < 0.01f || hardHit.rms < softHit.rms * 1.5f || roll.rms < 0.02f || tick.rms < 0.01f) return 80;
     return 0;
 }
 

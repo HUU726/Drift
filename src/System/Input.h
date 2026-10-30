@@ -61,6 +61,8 @@ private:
     bool prevConfirm_ = false;
     bool prevUp_ = false;
     bool prevDown_ = false;
+    bool prevLeft_ = false;
+    bool prevRight_ = false;
 #endif
 };
 

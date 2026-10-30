@@ -222,12 +222,13 @@ float SoundSynth::renderSkid() {
     // 鳴きの揺れ（「きゅー、きゅー」の 1 回の長さ）。1 秒に 2.8 回なので、1 回は約 0.36 秒。
     wobblePhase_ = wrap(wobblePhase_ + kSkidWobbleHz * dt_);
     const float wobble = std::sin(kTwoPi * wobblePhase_);
-    const float pitch = 760.0f + 4.0f * std::min(speed, 40.0f) + 25.0f * wobble;
+    // 「きゅー」の高さ。止まりかけで約 1.1 kHz、速いと約 1.3 kHz。
+    const float pitch = 1050.0f + 5.0f * std::min(speed, 40.0f) + 35.0f * wobble;
     squealPhase_ = wrap(squealPhase_ + pitch * dt_);
     float squeal = std::sin(kTwoPi * squealPhase_) + 0.3f * std::sin(2.0f * kTwoPi * squealPhase_);
 
-    // 状態変数フィルタのバンドパス（中心 1.5 kHz 前後）
-    const float f = 2.0f * std::sin(3.1415927f * (1500.0f + 200.0f * wobble) * dt_);
+    // 状態変数フィルタのバンドパス（中心 2 kHz 前後。鳴きの高さに合わせる）
+    const float f = 2.0f * std::sin(3.1415927f * (2000.0f + 250.0f * wobble) * dt_);
     const float q = 0.35f;
     float high = noise() - skidLow_ - q * skidBand_;
     skidBand_ += f * high;

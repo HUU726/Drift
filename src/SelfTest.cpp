@@ -1634,6 +1634,8 @@ int labTest() {
 int soundTest() {
     System::SoundSynth synth;
     synth.SetSampleRate(48000);
+    // 既定の音量を変えても判定が変わらないように、全体の音量をいっぱいにして測る。
+    synth.masterVolume.store(1.0f);
     struct Level {
         float rms = 0;
         float peak = 0;

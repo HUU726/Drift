@@ -34,7 +34,8 @@ public:
     void Play(SoundEffect effect, float strength = 1.0f);
 
     // 音量（0..1）。master は全体、music は BGM、effects はエンジン音、スキール音、効果音に掛ける。
-    std::atomic<float> masterVolume{0.8f};
+    // 既定の全体の音量は 0.8 の 3 分の 2。
+    std::atomic<float> masterVolume{0.8f * 2.0f / 3.0f};
     std::atomic<float> musicVolume{0.5f};
     std::atomic<float> effectsVolume{0.8f};
 

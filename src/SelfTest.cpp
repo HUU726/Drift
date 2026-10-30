@@ -6,6 +6,7 @@
 #include "Physics/RampCollider.h"
 #include "Physics/TrackCollider.h"
 #include "System/ColliderManager.h"
+#include "System/SoundSynth.h"
 #include "TestCourse.h"
 #include "TougeCourse.h"
 #include "Vehicle/Powertrain.h"
@@ -1627,6 +1628,87 @@ int labTest() {
     return 0;
 }
 
+// 音の合成。音の出る装置は使わず、SoundSynth が作る値だけを調べる。どの場面でも値が -1..1 の有限の数に収まり、
+// 何も鳴らさなければ無音、BGM、エンジン音（アクセルで大きくなる）、スキール音、ラップの音がそれぞれ鳴ること。
+int soundTest() {
+    System::SoundSynth synth;
+    synth.SetSampleRate(48000);
+    struct Level {
+        float rms = 0;
+        float peak = 0;
+        bool finite = true;
+    };
+    // sec 秒ぶんを 1024 フレームずつ作り、大きさを測る。
+    auto render = [&synth](float sec) {
+        constexpr int kFrames = 1024;
+        float buffer[kFrames * 2];
+        Level level;
+        double sum = 0;
+        long count = 0;
+        for (int done = 0; done < int(sec * 48000.0f); done += kFrames) {
+            synth.Render(buffer, kFrames, 2);
+            for (float v : buffer) {
+                level.finite = level.finite && std::isfinite(v);
+                level.peak = std::max(level.peak, std::fabs(v));
+                sum += double(v) * v;
+                ++count;
+            }
+        }
+        level.rms = float(std::sqrt(sum / double(std::max(1L, count))));
+        return level;
+    };
+    bool ok = true;
+    auto check = [&ok](const Level& level) {
+        ok = ok && level.finite && level.peak <= 1.0f;
+        return level;
+    };
+
+    Level silent = check(render(0.5f));
+    synth.SetBgm(System::BgmTrack::Title);
+    Level title = check(render(3.0f));
+    synth.SetBgm(System::BgmTrack::Race);
+    check(render(1.0f));  // 曲の切り替え
+    Level race = check(render(3.0f));
+
+    // 車の音だけを測る（BGM を 0 にする）。
+    synth.musicVolume.store(0);
+    System::CarSoundParams car;
+    car.active = true;
+    car.rpm = 1000;
+    car.speed = 10;
+    synth.SetCar(car);
+    check(render(0.5f));
+    Level idle = check(render(1.0f));
+    car.rpm = 7000;
+    car.throttle = 1;
+    car.speed = 30;
+    synth.SetCar(car);
+    check(render(0.5f));
+    Level full = check(render(1.0f));
+    car.skid = 1;
+    synth.SetCar(car);
+    check(render(0.3f));
+    Level skid = check(render(1.0f));
+
+    // ラップの音だけを測る（車の音を止める）。
+    synth.SetCar(System::CarSoundParams{});
+    check(render(1.5f));
+    synth.Play(System::SoundEffect::Lap);
+    Level lap = check(render(0.5f));
+    synth.Play(System::SoundEffect::BestLap);
+    check(render(3.0f));
+    Level after = check(render(0.5f));
+
+    std::printf("self-test sound rms: silent %.4f title %.3f race %.3f idle %.3f full %.3f skid %.3f lap %.3f after %.4f\n",
+                silent.rms, title.rms, race.rms, idle.rms, full.rms, skid.rms, lap.rms, after.rms);
+    if (!ok) return 75;
+    if (silent.peak > 1e-6f || after.rms > 1e-3f) return 76;
+    if (title.rms < 0.01f || race.rms < 0.01f) return 77;
+    if (idle.rms < 0.01f || full.rms < idle.rms * 1.3f) return 78;
+    if (skid.rms < full.rms * 1.05f || lap.rms < 0.02f) return 79;
+    return 0;
+}
+
 }  // namespace
 
 int RunSelfTest(const Track& track) {
@@ -1710,5 +1792,9 @@ int RunSelfTest(const Track& track) {
     if (result != 0) {
         return result;
     }
-    return labTest();
+    result = labTest();
+    if (result != 0) {
+        return result;
+    }
+    return soundTest();
 }

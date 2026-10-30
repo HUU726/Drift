@@ -12,6 +12,8 @@ public:
     explicit CarObject(Scene& scene) : GameObject(scene) { order = 10; }
     bool Init() override;
     void FixedUpdate(float dt) override;
+    // エンジン音とスキール音の値を、毎フレーム SoundManager に渡す。
+    void LateUpdate(float dt) override;
     void Draw3D(System::Renderer3D& renderer) override;
     void UnInit() override;
 

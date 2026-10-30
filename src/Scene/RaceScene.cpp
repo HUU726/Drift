@@ -11,8 +11,11 @@
 #include "System/Context.h"
 #include "System/Input.h"
 #include "System/SceneManager.h"
+#include "System/SoundManager.h"
 
 bool RaceScene::Init() {
+    // プレイ中の曲にする（前の曲を少しずつ下げてから切り替わる）。
+    Ctx().sound.PlayBgm(System::BgmTrack::Race);
     TrackObject* track = Add<TrackObject>();
     track->SetCourse(course_);
     if (course_ == TrackObject::Course::Suzuka) {

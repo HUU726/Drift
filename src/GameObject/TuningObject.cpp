@@ -6,6 +6,7 @@
 #include "System/Context.h"
 #include "System/Input.h"
 #include "System/Renderer2D.h"
+#include "System/SoundManager.h"
 #include "Vehicle/VehicleSpec.h"
 
 #include <SDL.h>
@@ -145,6 +146,17 @@ void TuningObject::buildBasicItems() {
                         car.airControl.enabled = on;
                         car.airControl.landingAssist = on;
                     }, "OFF", "ON"});
+    // 音量（%）。全体、BGM、効果音（エンジン音、スキール音、ラップの音）。シーンを移っても残る。
+    System::SoundManager& sound = scene_.Ctx().sound;
+    add("SOUND", {"MASTER VOLUME %", "master_volume", 0, 100, 5,
+                  [&sound] { return std::round(sound.MasterVolume() * 100.0f); },
+                  [&sound](float v) { sound.SetMasterVolume(v / 100.0f); }});
+    add("SOUND", {"MUSIC VOLUME %", "music_volume", 0, 100, 5,
+                  [&sound] { return std::round(sound.MusicVolume() * 100.0f); },
+                  [&sound](float v) { sound.SetMusicVolume(v / 100.0f); }});
+    add("SOUND", {"EFFECTS VOLUME %", "effects_volume", 0, 100, 5,
+                  [&sound] { return std::round(sound.EffectsVolume() * 100.0f); },
+                  [&sound](float v) { sound.SetEffectsVolume(v / 100.0f); }});
 }
 
 void TuningObject::buildDetailItems() {

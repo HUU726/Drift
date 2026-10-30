@@ -10,8 +10,11 @@
 #include "System/Context.h"
 #include "System/Input.h"
 #include "System/SceneManager.h"
+#include "System/SoundManager.h"
 
 bool TestScene::Init() {
+    // プレイ中の曲にする（前の曲を少しずつ下げてから切り替わる）。
+    Ctx().sound.PlayBgm(System::BgmTrack::Race);
     Add<TestGroundObject>();
     car_ = Add<CarObject>();
     TestCourse layout;  // 配置の既定値（スタート地点）を読むだけ

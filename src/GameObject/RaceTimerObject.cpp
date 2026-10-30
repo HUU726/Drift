@@ -3,6 +3,8 @@
 #include "GameObject/CarObject.h"
 #include "GameObject/TrackObject.h"
 #include "Scene/Scene.h"
+#include "System/Context.h"
+#include "System/SoundManager.h"
 
 namespace {
 
@@ -33,5 +35,12 @@ bool RaceTimerObject::Init() {
 }
 
 void RaceTimerObject::PostPhysicsUpdate(float dt) {
+    const int completed = race_.completed;
+    const float best = race_.best;
     tickRace(race_, car_->GetCar().ground.s, track_->GetTrack().length, dt);
+    // 1 周したら短い音を鳴らす。2 周目からは、ベストラップを縮めたときに別の音にする。
+    if (race_.completed > completed) {
+        bool newBest = completed > 0 && race_.best < best;
+        scene_.Ctx().sound.PlaySe(newBest ? System::SoundEffect::BestLap : System::SoundEffect::Lap);
+    }
 }

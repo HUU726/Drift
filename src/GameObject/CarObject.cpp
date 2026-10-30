@@ -5,6 +5,7 @@
 #include "System/ColliderManager.h"
 #include "System/Context.h"
 #include "System/Input.h"
+#include "System/SoundManager.h"
 #include "Vehicle/VehicleSpec.h"
 
 #include <cmath>
@@ -54,6 +55,23 @@ void CarObject::FixedUpdate(float dt) {
     car_.update(dt, scene_.Ctx().input.Drive(), track_);
 }
 
+void CarObject::LateUpdate(float dt) {
+    (void)dt;
+    // ポーズ中は音を止める（車が止まって見えるのに、エンジンとタイヤが鳴り続けないように）。
+    System::CarSoundParams sound;
+    sound.active = !scene_.Paused();
+    sound.rpm = car_.Powertrain().Rpm();
+    sound.throttle = scene_.Ctx().input.Drive().throttle;
+    sound.speed = length(car_.body.velocity);
+    // スキール音は、ドリフト中に地面に着いているときだけ。滑る角度が深いほど、速いほど大きくする。
+    if (car_.drifting && !car_.Airborne()) {
+        float angle = clampf(std::fabs(car_.driftAngle) / 0.6f, 0.35f, 1.0f);
+        float fast = clampf((sound.speed - 3.0f) / 12.0f, 0.0f, 1.0f);
+        sound.skid = angle * fast;
+    }
+    scene_.Ctx().sound.SetCar(sound);
+}
+
 void CarObject::Draw3D(System::Renderer3D& renderer) {
     // 影は車の真下の路面に置く。車体が浮いても路面に残る。
     Vec3 origin = car_.Origin();
@@ -73,6 +91,7 @@ void CarObject::Draw3D(System::Renderer3D& renderer) {
 }
 
 void CarObject::UnInit() {
+    scene_.Ctx().sound.StopCar();
     System::ColliderManager& physics = scene_.Ctx().physics;
     physics.Unregister(&box_);
     for (WheelCollider& w : car_.wheels) {

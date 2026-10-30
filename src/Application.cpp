@@ -120,6 +120,7 @@ void App::frame() {
         if (event.type == SDL_QUIT) {
             running_ = false;
         } else {
+            sound_.OnEvent(event);
             input_.OnEvent(event);
         }
     }
